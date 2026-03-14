@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from weather_bot.execution.models import OrderRequest, OrderResult
-from weather_bot.market.models import Position
+from wedge.execution.models import OrderRequest, OrderResult
+from wedge.market.models import Position
 
 
 class Executor(Protocol):

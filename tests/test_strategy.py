@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from weather_bot.strategy.ladder import evaluate_ladder
-from weather_bot.strategy.models import EdgeSignal
-from weather_bot.strategy.portfolio import allocate
-from weather_bot.strategy.tail import evaluate_tail
+from wedge.strategy.ladder import evaluate_ladder
+from wedge.strategy.models import EdgeSignal
+from wedge.strategy.portfolio import allocate
+from wedge.strategy.tail import evaluate_tail
 
 
 def _signal(temp_f: int, edge: float, odds: float, p_market: float = 0.10) -> EdgeSignal:

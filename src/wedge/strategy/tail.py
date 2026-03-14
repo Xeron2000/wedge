@@ -1,30 +1,32 @@
 from __future__ import annotations
 
-from weather_bot.market.models import Position
-from weather_bot.strategy.kelly import fractional_kelly
-from weather_bot.strategy.models import EdgeSignal
+from wedge.market.models import MarketBucket, Position
+from wedge.strategy.kelly import fractional_kelly
+from wedge.strategy.models import EdgeSignal
 
 
-def evaluate_ladder(
+def evaluate_tail(
     signals: list[EdgeSignal],
     budget: float,
-    edge_threshold: float = 0.05,
+    edge_threshold: float = 0.08,
+    min_odds: float = 10.0,
     kelly_fraction: float = 0.15,
     max_bet: float = 100.0,
     max_bet_pct: float = 0.05,
 ) -> list[Position]:
-    """Select ladder positions: center-region buckets with range edge > threshold."""
-    ladder_signals = [s for s in signals if s.edge > edge_threshold]
-    if not ladder_signals:
+    """Select tail positions: extreme temps with high odds and significant edge."""
+    tail_signals = [
+        s for s in signals if s.edge > edge_threshold and s.odds >= min_odds
+    ]
+    if not tail_signals:
         return []
 
-    # Sort by edge descending to prioritize best opportunities
-    ladder_signals.sort(key=lambda s: s.edge, reverse=True)
+    tail_signals.sort(key=lambda s: s.edge * s.odds, reverse=True)
 
     positions: list[Position] = []
     remaining = budget
 
-    for signal in ladder_signals:
+    for signal in tail_signals:
         bet = fractional_kelly(
             p_model=signal.p_model,
             market_price=signal.p_market,
@@ -38,8 +40,6 @@ def evaluate_ladder(
         if bet > remaining:
             break
 
-        from weather_bot.market.models import MarketBucket
-
         positions.append(
             Position(
                 bucket=MarketBucket(
@@ -52,7 +52,7 @@ def evaluate_ladder(
                 ),
                 size=bet,
                 entry_price=signal.p_market,
-                strategy="ladder",
+                strategy="tail",
                 p_model=signal.p_model,
                 edge=signal.edge,
             )

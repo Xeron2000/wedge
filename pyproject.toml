@@ -9,7 +9,6 @@ dependencies = [
     "py-clob-client>=0.1",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "pyyaml>=6.0",
     "aiosqlite>=0.20",
     "typer>=0.12",
     "structlog>=24.0",
@@ -17,14 +16,14 @@ dependencies = [
 ]
 
 [project.scripts]
-wedge = "weather_bot.cli:app"
+wedge = "wedge.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/weather_bot"]
+packages = ["src/wedge"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from weather_bot.market.models import MarketBucket
-from weather_bot.strategy.edge import detect_edges
-from weather_bot.weather.models import ForecastDistribution
+from wedge.market.models import MarketBucket
+from wedge.strategy.edge import detect_edges
+from wedge.weather.models import ForecastDistribution
 
 
 def _forecast(buckets: dict[int, float]) -> ForecastDistribution:

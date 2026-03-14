@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from weather_bot.market.models import MarketBucket
-from weather_bot.strategy.models import EdgeSignal
-from weather_bot.weather.models import ForecastDistribution
+from wedge.market.models import MarketBucket
+from wedge.strategy.models import EdgeSignal
+from wedge.weather.models import ForecastDistribution
 
 _EPS = 1e-6
 

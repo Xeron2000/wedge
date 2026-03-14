@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import httpx
 
-from weather_bot.config import CityConfig
-from weather_bot.log import get_logger
+from wedge.config import CityConfig
+from wedge.log import get_logger
 
 log = get_logger("weather.client")
 

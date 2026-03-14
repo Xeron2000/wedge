@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from weather_bot.log import get_logger
+from wedge.log import get_logger
 
 log = get_logger("market.polymarket")
 

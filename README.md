@@ -5,33 +5,33 @@ Automated weather prediction market trading bot. Detects edges between GFS ensem
 ## Install
 
 ```bash
-# From GitHub
 uv tool install git+https://github.com/Xeron2000/wedge
-
-# From source
-git clone https://github.com/Xeron2000/wedge
-cd wedge
-uv sync
 ```
 
 ## Usage
 
 ```bash
-wedge scan --city NYC            # Scan forecast distribution
-wedge run --dry-run              # Simulated trading
-wedge run --dry-run --telegram   # With Telegram notifications
-wedge stats --days 30            # View P&L and Brier score
-wedge run --live --bankroll 1000 # Live trading (requires Polymarket keys)
+wedge scan --city NYC
+wedge run --dry-run
+wedge run --dry-run --bankroll 500 --kelly 0.10
+wedge run --dry-run --telegram
+wedge run --live --bankroll 1000
+wedge stats --days 30
 ```
 
-## Configuration
+## Environment Variables
 
-Copy `config.example.yaml` to `config.yaml`. Credentials use env vars only:
+All configuration via `WEDGE_*` env vars or CLI flags.
 
 ```bash
-WEATHER_BOT_TELEGRAM_TOKEN=...
-WEATHER_BOT_TELEGRAM_CHAT_ID=...
-WEATHER_BOT_POLYMARKET_PRIVATE_KEY=...
+# Telegram (optional)
+export WEDGE_TELEGRAM_TOKEN="..."
+export WEDGE_TELEGRAM_CHAT_ID="..."
+
+# Polymarket (required for --live)
+export WEDGE_POLYMARKET_PRIVATE_KEY="..."
+export WEDGE_POLYMARKET_API_KEY="..."
+export WEDGE_POLYMARKET_API_SECRET="..."
 ```
 
 ## Tests

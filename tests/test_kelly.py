@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from weather_bot.strategy.kelly import fractional_kelly
+from wedge.strategy.kelly import fractional_kelly
 
 
 class TestKelly:

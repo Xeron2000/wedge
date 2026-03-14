@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from weather_bot.log import get_logger
+from wedge.log import get_logger
 
 log = get_logger("notify")
 

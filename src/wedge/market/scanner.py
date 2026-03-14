@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
-from weather_bot.log import get_logger
-from weather_bot.market.models import MarketBucket
-from weather_bot.market.polymarket import PolymarketClient
+from wedge.log import get_logger
+from wedge.market.models import MarketBucket
+from wedge.market.polymarket import PolymarketClient
 
 log = get_logger("market.scanner")
 

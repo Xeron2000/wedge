@@ -4,9 +4,9 @@ from datetime import date
 
 import pytest
 
-from weather_bot.db import Database
-from weather_bot.execution.dry_run import DryRunExecutor
-from weather_bot.execution.models import OrderRequest
+from wedge.db import Database
+from wedge.execution.dry_run import DryRunExecutor
+from wedge.execution.models import OrderRequest
 
 
 @pytest.fixture

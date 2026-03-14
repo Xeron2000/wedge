@@ -7,21 +7,21 @@ from zoneinfo import ZoneInfo
 import httpx
 import structlog
 
-from weather_bot.config import CityConfig, Settings
-from weather_bot.db import Database
-from weather_bot.execution.dry_run import DryRunExecutor
-from weather_bot.execution.live import LiveExecutor
-from weather_bot.execution.models import OrderRequest
-from weather_bot.log import get_logger
-from weather_bot.market.models import MarketBucket
-from weather_bot.market.polymarket import PolymarketClient
-from weather_bot.market.scanner import scan_weather_markets
-from weather_bot.strategy.edge import detect_edges
-from weather_bot.strategy.ladder import evaluate_ladder
-from weather_bot.strategy.portfolio import allocate
-from weather_bot.strategy.tail import evaluate_tail
-from weather_bot.weather.client import fetch_ensemble
-from weather_bot.weather.ensemble import parse_distribution
+from wedge.config import CityConfig, Settings
+from wedge.db import Database
+from wedge.execution.dry_run import DryRunExecutor
+from wedge.execution.live import LiveExecutor
+from wedge.execution.models import OrderRequest
+from wedge.log import get_logger
+from wedge.market.models import MarketBucket
+from wedge.market.polymarket import PolymarketClient
+from wedge.market.scanner import scan_weather_markets
+from wedge.strategy.edge import detect_edges
+from wedge.strategy.ladder import evaluate_ladder
+from wedge.strategy.portfolio import allocate
+from wedge.strategy.tail import evaluate_tail
+from wedge.weather.client import fetch_ensemble
+from wedge.weather.ensemble import parse_distribution
 
 log = get_logger("pipeline")
 
@@ -53,8 +53,8 @@ async def run_pipeline(
     # Budget allocation
     ladder_budget, tail_budget, _ = allocate(
         settings.bankroll,
-        settings.strategy.ladder.allocation,
-        settings.strategy.tail.allocation,
+        settings.ladder_alloc,
+        settings.tail_alloc,
     )
 
     total_orders = 0
@@ -92,7 +92,7 @@ async def run_pipeline(
 
     # Send notification if notifier is available
     if notifier and hasattr(notifier, "send"):
-        from weather_bot.monitoring.notify import format_pipeline_summary
+        from wedge.monitoring.notify import format_pipeline_summary
 
         summary = format_pipeline_summary(
             mode=settings.mode,
@@ -161,8 +161,8 @@ async def _process_city(
     signals = detect_edges(
         forecast,
         markets,
-        ladder_threshold=settings.strategy.ladder.edge_threshold,
-        tail_threshold=settings.strategy.tail.edge_threshold,
+        ladder_threshold=settings.ladder_edge,
+        tail_threshold=settings.tail_edge,
     )
     if not signals:
         log.info("no_edges", city=city_cfg.name)
@@ -173,15 +173,15 @@ async def _process_city(
     # 6. Generate positions
     ladder_positions = evaluate_ladder(
         signals, ladder_budget,
-        edge_threshold=settings.strategy.ladder.edge_threshold,
+        edge_threshold=settings.ladder_edge,
         kelly_fraction=settings.kelly_fraction,
         max_bet=settings.max_bet,
         max_bet_pct=settings.max_bet_pct,
     )
     tail_positions = evaluate_tail(
         signals, tail_budget,
-        edge_threshold=settings.strategy.tail.edge_threshold,
-        min_odds=settings.strategy.tail.min_odds,
+        edge_threshold=settings.tail_edge,
+        min_odds=settings.tail_odds,
         kelly_fraction=settings.kelly_fraction,
         max_bet=settings.max_bet,
         max_bet_pct=settings.max_bet_pct,
@@ -238,7 +238,7 @@ def _generate_synthetic_markets(
 
 async def run_single_scan(settings: Settings, city_name: str) -> None:
     """Run a single scan for one city (CLI scan command)."""
-    from weather_bot.log import setup_logging
+    from wedge.log import setup_logging
     setup_logging()
 
     city_cfg = next(

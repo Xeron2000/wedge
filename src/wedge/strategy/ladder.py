@@ -1,32 +1,30 @@
 from __future__ import annotations
 
-from weather_bot.market.models import MarketBucket, Position
-from weather_bot.strategy.kelly import fractional_kelly
-from weather_bot.strategy.models import EdgeSignal
+from wedge.market.models import Position
+from wedge.strategy.kelly import fractional_kelly
+from wedge.strategy.models import EdgeSignal
 
 
-def evaluate_tail(
+def evaluate_ladder(
     signals: list[EdgeSignal],
     budget: float,
-    edge_threshold: float = 0.08,
-    min_odds: float = 10.0,
+    edge_threshold: float = 0.05,
     kelly_fraction: float = 0.15,
     max_bet: float = 100.0,
     max_bet_pct: float = 0.05,
 ) -> list[Position]:
-    """Select tail positions: extreme temps with high odds and significant edge."""
-    tail_signals = [
-        s for s in signals if s.edge > edge_threshold and s.odds >= min_odds
-    ]
-    if not tail_signals:
+    """Select ladder positions: center-region buckets with range edge > threshold."""
+    ladder_signals = [s for s in signals if s.edge > edge_threshold]
+    if not ladder_signals:
         return []
 
-    tail_signals.sort(key=lambda s: s.edge * s.odds, reverse=True)
+    # Sort by edge descending to prioritize best opportunities
+    ladder_signals.sort(key=lambda s: s.edge, reverse=True)
 
     positions: list[Position] = []
     remaining = budget
 
-    for signal in tail_signals:
+    for signal in ladder_signals:
         bet = fractional_kelly(
             p_model=signal.p_model,
             market_price=signal.p_market,
@@ -40,6 +38,8 @@ def evaluate_tail(
         if bet > remaining:
             break
 
+        from wedge.market.models import MarketBucket
+
         positions.append(
             Position(
                 bucket=MarketBucket(
@@ -52,7 +52,7 @@ def evaluate_tail(
                 ),
                 size=bet,
                 entry_price=signal.p_market,
-                strategy="tail",
+                strategy="ladder",
                 p_model=signal.p_model,
                 edge=signal.edge,
             )

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from weather_bot.config import Settings
-from weather_bot.db import Database
-from weather_bot.log import get_logger
+from wedge.config import Settings
+from wedge.db import Database
+from wedge.log import get_logger
 
 log = get_logger("monitoring")
 

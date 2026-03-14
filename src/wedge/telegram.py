@@ -5,10 +5,10 @@ import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from weather_bot.config import Settings
-from weather_bot.db import Database
-from weather_bot.log import get_logger
-from weather_bot.monitoring.notify import format_stats
+from wedge.config import Settings
+from wedge.db import Database
+from wedge.log import get_logger
+from wedge.monitoring.notify import format_stats
 
 log = get_logger("telegram")
 
@@ -71,7 +71,7 @@ class TelegramBotManager:
 
         await update.message.reply_text(f"Scanning {city}...")
 
-        from weather_bot.pipeline import run_single_scan
+        from wedge.pipeline import run_single_scan
         try:
             await run_single_scan(self._settings, city)
             await update.message.reply_text(f"Scan complete for {city}. Check logs for details.")
@@ -104,7 +104,7 @@ class TelegramBotManager:
 
         brier = await self._db.get_brier_score(7)
         brier_str = f"{brier:.4f}" if brier is not None else "N/A"
-        status = "PAUSED" if brier and brier > self._settings.monitoring.brier_threshold else "ACTIVE"
+        status = "PAUSED" if brier and brier > self._settings.brier_threshold else "ACTIVE"
 
         msg = "\n".join([
             f"*Status*: {status}",

@@ -28,8 +28,7 @@ __pycache__/
 *.db-wal
 *.db-shm
 
-# Weather bot runtime
-config.yaml
+# Runtime
 uv.lock
 
 # OpenSpec (local workflow state)

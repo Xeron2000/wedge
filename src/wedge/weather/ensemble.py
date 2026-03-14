@@ -4,7 +4,7 @@ import math
 import re
 from datetime import UTC, date, datetime
 
-from weather_bot.weather.models import ForecastDistribution
+from wedge.weather.models import ForecastDistribution
 
 _MEMBER_RE = re.compile(r"^temperature_2m_max_member\d+$")
 _MIN_MEMBERS = 10

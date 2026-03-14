@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_trades_settled ON trades(settled);
 
 
 class Database:
-    def __init__(self, db_path: str = "weather_bot.db") -> None:
+    def __init__(self, db_path: str = "wedge.db") -> None:
         self._path = Path(db_path)
         self._conn: aiosqlite.Connection | None = None
 

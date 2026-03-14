@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from weather_bot.weather.ensemble import parse_distribution
+from wedge.weather.ensemble import parse_distribution
 
 
 def _make_raw(members: list[list[float]], dates: list[str]) -> dict:

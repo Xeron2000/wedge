@@ -3,12 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from weather_bot.db import Database
-from weather_bot.execution.executor import validate_order
-from weather_bot.execution.models import OrderRequest, OrderResult
-from weather_bot.log import get_logger
-from weather_bot.market.models import MarketBucket, Position
-from weather_bot.market.polymarket import PolymarketClient
+from wedge.db import Database
+from wedge.execution.executor import validate_order
+from wedge.execution.models import OrderRequest, OrderResult
+from wedge.log import get_logger
+from wedge.market.models import MarketBucket, Position
+from wedge.market.polymarket import PolymarketClient
 
 log = get_logger("execution.live")
 

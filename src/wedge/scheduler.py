@@ -9,11 +9,11 @@ from apscheduler.triggers.cron import CronTrigger
 
 _UTC = ZoneInfo("UTC")
 
-from weather_bot.config import Settings
-from weather_bot.db import Database
-from weather_bot.log import get_logger
-from weather_bot.monitoring.notify import create_notifier, format_alert
-from weather_bot.pipeline import run_pipeline
+from wedge.config import Settings
+from wedge.db import Database
+from wedge.log import get_logger
+from wedge.monitoring.notify import create_notifier, format_alert
+from wedge.pipeline import run_pipeline
 
 log = get_logger("scheduler")
 
@@ -35,7 +35,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
         async with _running_lock:
             try:
                 brier = await db.get_brier_score(days=30)
-                if brier is not None and brier > settings.monitoring.brier_threshold:
+                if brier is not None and brier > settings.brier_threshold:
                     log.warning("circuit_breaker_active", brier_score=f"{brier:.3f}")
                     await notifier.send(
                         format_alert("Circuit breaker active", f"Brier score: {brier:.4f}")
@@ -46,7 +46,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
                 log.error("pipeline_error", error=str(e))
                 await notifier.send(format_alert("Pipeline error", str(e)))
 
-    for offset in settings.scheduler.offsets_utc:
+    for offset in settings.offsets_utc:
         hour, minute = offset.split(":")
         scheduler.add_job(
             _guarded_pipeline,
@@ -60,7 +60,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
     log.info(
         "scheduler_started",
         mode=settings.mode,
-        windows=settings.scheduler.offsets_utc,
+        windows=settings.offsets_utc,
         bankroll=settings.bankroll,
         telegram=enable_telegram,
     )
@@ -82,7 +82,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
     # Optionally start Telegram bot
     tg_manager = None
     if enable_telegram and settings.telegram_token:
-        from weather_bot.telegram import TelegramBotManager
+        from wedge.telegram import TelegramBotManager
 
         tg_manager = TelegramBotManager(settings, db)
         tg_manager.set_stop_event(stop_event)
