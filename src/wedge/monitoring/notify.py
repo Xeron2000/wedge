@@ -37,7 +37,6 @@ class TelegramNotifier:
             await self._bot.send_message(  # type: ignore[union-attr]
                 chat_id=self._chat_id,
                 text=message,
-                parse_mode="Markdown",
             )
         except Exception as e:
             log.error("telegram_send_failed", error=str(e))
@@ -59,7 +58,7 @@ def format_pipeline_summary(
     signals: list[dict] | None = None,
 ) -> str:
     lines = [
-        f"*Pipeline Complete* ({mode})",
+        f"[Pipeline Complete] ({mode})",
         "━━━━━━━━━━━━━━━",
         f"Cities: {', '.join(cities)}",
         f"Edges found: {edges_found}",
@@ -76,7 +75,7 @@ def format_pipeline_summary(
 
 
 def format_alert(reason: str, details: str = "") -> str:
-    lines = [f"*ALERT*: {reason}"]
+    lines = [f"[ALERT] {reason}"]
     if details:
         lines.append(details)
     return "\n".join(lines)
@@ -96,7 +95,7 @@ def format_stats(
     if brier is not None:
         brier_status = " (GOOD)" if brier < 0.20 else " (OK)" if brier < 0.25 else " (PAUSED)"
     return "\n".join([
-        f"*Stats* ({days} days)",
+        f"[Stats] ({days} days)",
         "━━━━━━━━━━━━━━━",
         f"Trades: {total_trades}",
         f"Wins: {wins} ({win_rate:.1%})" if total_trades > 0 else "Wins: N/A",

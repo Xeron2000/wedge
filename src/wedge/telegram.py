@@ -96,7 +96,7 @@ class TelegramBotManager:
             total_pnl=pnl["total_pnl"],
             brier=brier,
         )
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await update.message.reply_text(msg)
 
     async def _handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._check_auth(update):
@@ -107,13 +107,13 @@ class TelegramBotManager:
         status = "PAUSED" if brier and brier > self._settings.brier_threshold else "ACTIVE"
 
         msg = "\n".join([
-            f"*Status*: {status}",
+            f"Status: {status}",
             f"Mode: {self._settings.mode}",
             f"Bankroll: ${self._settings.bankroll:.2f}",
             f"Brier (7d): {brier_str}",
             f"Cities: {', '.join(c.name for c in self._settings.cities)}",
         ])
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await update.message.reply_text(msg)
 
     async def _handle_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._check_auth(update):
@@ -126,11 +126,11 @@ class TelegramBotManager:
         if not self._check_auth(update):
             return
         msg = "\n".join([
-            "*Weather Edge Bot*",
+            "Weather Edge Bot",
             "/scan <city> — Run single scan",
             "/stats [days] — Show P&L and Brier",
             "/status — Current bot status",
             "/stop — Graceful shutdown",
             "/help — This message",
         ])
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await update.message.reply_text(msg)
