@@ -1,0 +1,36 @@
+# IDE / tools
+.ace-tool/
+.claude/
+.omp/
+.mcp.json
+
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+
+# SQLite
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Weather bot runtime
+config.yaml
+uv.lock
+
+# OpenSpec (local workflow state)
+openspec/
