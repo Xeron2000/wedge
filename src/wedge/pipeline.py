@@ -20,7 +20,7 @@ from wedge.strategy.edge import detect_edges
 from wedge.strategy.ladder import evaluate_ladder
 from wedge.strategy.portfolio import allocate
 from wedge.strategy.tail import evaluate_tail
-from wedge.weather.client import fetch_ensemble
+from wedge.weather.client import fetch_actual_temperature, fetch_ensemble
 from wedge.weather.ensemble import parse_distribution
 
 log = get_logger("pipeline")
@@ -37,6 +37,9 @@ async def run_pipeline(
     await db.insert_run(run_id, now.isoformat())
     log.info("pipeline_start", mode=settings.mode, bankroll=settings.bankroll)
 
+    # Restore balance from last snapshot (persists across pipeline runs)
+    current_balance = await db.get_last_balance(default=settings.bankroll)
+
     # Set up executor and shared Polymarket client
     poly_client: PolymarketClient | None = None
     if settings.mode == "live":
@@ -46,13 +49,13 @@ async def run_pipeline(
             settings.polymarket_api_secret,
         )
         await poly_client.connect()
-        executor = LiveExecutor(db, poly_client, settings.bankroll, settings.max_bet)
+        executor = LiveExecutor(db, poly_client, current_balance, settings.max_bet)
     else:
-        executor = DryRunExecutor(db, settings.bankroll, settings.max_bet)
+        executor = DryRunExecutor(db, current_balance, settings.max_bet)
 
-    # Budget allocation
+    # Budget allocation based on current balance, not initial bankroll
     ladder_budget, tail_budget, _ = allocate(
-        settings.bankroll,
+        current_balance,
         settings.ladder_alloc,
         settings.tail_alloc,
     )
@@ -234,6 +237,58 @@ def _generate_synthetic_markets(
             )
         )
     return markets
+
+
+async def run_settlement(
+    settings: Settings, db: Database, *, notifier: object | None = None
+) -> int:
+    """Settle all trades whose target date has passed.
+
+    Fetches actual observed temperatures and updates forecasts + trades.
+    Returns total number of trades settled.
+    """
+    unsettled = await db.get_unsettled_dates()
+    if not unsettled:
+        log.info("settlement_no_pending")
+        return 0
+
+    log.info("settlement_start", pending_pairs=len(unsettled))
+
+    city_map = {c.name: c for c in settings.cities}
+    total_settled = 0
+
+    async with httpx.AsyncClient() as http_client:
+        for city_name, trade_date in unsettled:
+            city_cfg = city_map.get(city_name)
+            if not city_cfg:
+                log.warning("settlement_unknown_city", city=city_name)
+                continue
+
+            actual_temp = await fetch_actual_temperature(
+                http_client, city_cfg, trade_date
+            )
+            if actual_temp is None:
+                log.warning("settlement_no_actual", city=city_name, date=trade_date)
+                continue
+
+            await db.update_forecast_actual(city_name, trade_date, actual_temp)
+            count = await db.settle_trades(city_name, trade_date, actual_temp)
+            total_settled += count
+            log.info(
+                "settlement_settled",
+                city=city_name,
+                date=trade_date,
+                actual_temp=actual_temp,
+                trades_settled=count,
+            )
+
+    if total_settled > 0 and notifier and hasattr(notifier, "send"):
+        await notifier.send(
+            f"[Settlement] Settled {total_settled} trade(s) across {len(unsettled)} date(s)"
+        )
+
+    log.info("settlement_complete", total_settled=total_settled)
+    return total_settled
 
 
 async def run_single_scan(settings: Settings, city_name: str) -> None:

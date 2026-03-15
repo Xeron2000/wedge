@@ -22,13 +22,13 @@ def fractional_kelly(
         return 0.0
 
     b = (1.0 - market_price) / market_price  # odds
-    if b < _EPS:
+    if b < _EPS:  # pragma: no cover — guarded by market_price < 1-EPS above
         return 0.0
 
     q = 1.0 - p_model
     f_full = (p_model * b - q) / b  # full Kelly fraction
 
-    if f_full <= 0 or not math.isfinite(f_full):
+    if f_full <= 0 or not math.isfinite(f_full):  # pragma: no cover — edge>0 guarantees f_full>0
         return 0.0
 
     f_actual = f_full * fraction
@@ -37,7 +37,7 @@ def fractional_kelly(
     cap = min(max_bet, bankroll * max_bet_pct)
     bet = max(0.0, min(bet, cap))
 
-    if not math.isfinite(bet):
+    if not math.isfinite(bet):  # pragma: no cover — all inputs finite after guards
         return 0.0
 
     return bet

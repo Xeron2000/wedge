@@ -62,5 +62,5 @@ def stats(
     asyncio.run(show_stats(settings, days))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     app()

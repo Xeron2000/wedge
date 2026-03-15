@@ -181,6 +181,22 @@ class Database:
         )
         await self.conn.commit()
 
+    async def get_last_balance(self, default: float = 1000.0) -> float:
+        """Get balance from the most recent snapshot, or default if none exist."""
+        cursor = await self.conn.execute(
+            "SELECT balance FROM bankroll_snapshots ORDER BY created_at DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return row["balance"] if row else default
+
+    async def get_unsettled_dates(self) -> list[tuple[str, str]]:
+        """Get distinct (city, date) pairs with unsettled trades where date <= today."""
+        cursor = await self.conn.execute(
+            """SELECT DISTINCT city, date FROM trades
+               WHERE settled = 0 AND date <= date('now')"""
+        )
+        return [(row["city"], row["date"]) for row in await cursor.fetchall()]
+
     async def get_brier_score(self, days: int = 30) -> float | None:
         cursor = await self.conn.execute(
             """SELECT AVG((p_model - CASE WHEN actual_temp_f = temp_f THEN 1.0 ELSE 0.0 END)

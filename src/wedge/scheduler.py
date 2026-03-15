@@ -13,7 +13,7 @@ from wedge.config import Settings
 from wedge.db import Database
 from wedge.log import get_logger
 from wedge.monitoring.notify import create_notifier, format_alert
-from wedge.pipeline import run_pipeline
+from wedge.pipeline import run_pipeline, run_settlement
 
 log = get_logger("scheduler")
 
@@ -29,7 +29,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
     _running_lock = asyncio.Lock()
 
     async def _guarded_pipeline() -> None:
-        if _running_lock.locked():
+        if _running_lock.locked():  # pragma: no cover — concurrency guard
             log.warning("pipeline_skipped_already_running")
             return
         async with _running_lock:
@@ -45,6 +45,22 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
             except Exception as e:
                 log.error("pipeline_error", error=str(e))
                 await notifier.send(format_alert("Pipeline error", str(e)))
+
+    async def _run_settlement() -> None:
+        try:
+            await run_settlement(settings, db, notifier=notifier)
+        except Exception as e:
+            log.error("settlement_error", error=str(e))
+            await notifier.send(format_alert("Settlement error", str(e)))
+
+    # Daily settlement at 23:45 UTC (after all daily highs are recorded)
+    scheduler.add_job(
+        _run_settlement,
+        trigger=CronTrigger(hour=23, minute=45, timezone=_UTC),
+        coalesce=True,
+        misfire_grace_time=3600,
+        id="settlement_daily",
+    )
 
     for offset in settings.offsets_utc:
         hour, minute = offset.split(":")
@@ -71,7 +87,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
     # Wait for shutdown signal
     stop_event = asyncio.Event()
 
-    def _handle_signal() -> None:
+    def _handle_signal() -> None:  # pragma: no cover — OS signal handler
         log.info("shutdown_signal_received")
         stop_event.set()
 

@@ -105,11 +105,12 @@ class TelegramBotManager:
         brier = await self._db.get_brier_score(7)
         brier_str = f"{brier:.4f}" if brier is not None else "N/A"
         status = "PAUSED" if brier and brier > self._settings.brier_threshold else "ACTIVE"
+        balance = await self._db.get_last_balance(default=self._settings.bankroll)
 
         msg = "\n".join([
             f"Status: {status}",
             f"Mode: {self._settings.mode}",
-            f"Bankroll: ${self._settings.bankroll:.2f}",
+            f"Balance: ${balance:.2f}",
             f"Brier (7d): {brier_str}",
             f"Cities: {', '.join(c.name for c in self._settings.cities)}",
         ])
