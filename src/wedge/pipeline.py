@@ -224,7 +224,7 @@ def _generate_synthetic_markets(
     rng = random.Random(f"{city}_{target_date}")
     markets = []
     for temp_f, p_model in forecast.buckets.items():
-        noise = rng.uniform(-0.05, 0.03)
+        noise = rng.uniform(-0.10, 0.10)
         market_price = max(0.01, min(0.99, p_model + noise))
         markets.append(
             MarketBucket(
