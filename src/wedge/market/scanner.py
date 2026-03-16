@@ -77,42 +77,69 @@ async def scan_weather_markets(
 
     # Parse markets from the event
     for market in event.get("markets", []):
-        question = market.get("question", "").lower()
+        try:
+            question = market.get("question", "").lower()
 
-        # Extract temperature from question
-        # Format: "Will the highest temperature in {City} be {temp}°F..."
-        temp_match = _TEMP_PATTERN.search(question)
-        if not temp_match:
-            continue
+            # Extract temperature from question
+            # Format: "Will the highest temperature in {City} be {temp}°F..."
+            temp_match = _TEMP_PATTERN.search(question)
+            if not temp_match:
+                continue
 
-        temp_f = int(temp_match.group(1))
+            try:
+                temp_f = int(temp_match.group(1))
+            except (ValueError, IndexError):
+                log.warning("invalid_temp_format", question=question)
+                continue
 
-        # Get outcomes (Yes/No tokens)
-        outcomes = market.get("outcomes", [])
-        if len(outcomes) < 2:
-            continue
+            # Get outcomes (Yes/No tokens)
+            outcomes = market.get("outcomes", [])
+            if not isinstance(outcomes, list) or len(outcomes) < 2:
+                continue
 
-        # Find "Yes" outcome price
-        yes_outcome = next((o for o in outcomes if o.get("outcome", "").lower() == "yes"), None)
-        if not yes_outcome:
-            continue
+            # Find "Yes" outcome and its index
+            yes_index = None
+            yes_outcome = None
+            for idx, outcome in enumerate(outcomes):
+                if not isinstance(outcome, dict):
+                    continue
+                if outcome.get("outcome", "").lower() == "yes":
+                    yes_index = idx
+                    yes_outcome = outcome
+                    break
 
-        price = float(yes_outcome.get("price", 0))
-        if not (0 < price < 1):
-            continue
+            if not yes_outcome or yes_index is None:
+                continue
 
-        token_id = market.get("clobTokenIds", [""])[0] if market.get("clobTokenIds") else ""
+            try:
+                price = float(yes_outcome.get("price", 0))
+            except (ValueError, TypeError):
+                log.warning("invalid_price_format", market=question, price=yes_outcome.get("price"))
+                continue
 
-        buckets.append(
-            MarketBucket(
-                token_id=token_id,
-                city=city,
-                date=target_date,
-                temp_f=temp_f,
-                market_price=price,
-                implied_prob=price,
+            if not (0 < price < 1):
+                continue
+
+            # Get token_id corresponding to Yes outcome using the same index
+            clob_token_ids = market.get("clobTokenIds", [])
+            if not clob_token_ids or yes_index >= len(clob_token_ids):
+                token_id = ""
+            else:
+                token_id = clob_token_ids[yes_index]
+
+            buckets.append(
+                MarketBucket(
+                    token_id=token_id,
+                    city=city,
+                    date=target_date,
+                    temp_f=temp_f,
+                    market_price=price,
+                    implied_prob=price,
+                )
             )
-        )
+        except Exception as e:
+            log.warning("market_parse_error", market=market.get("question", "unknown"), error=str(e))
+            continue
 
     log.info("scan_complete", city=city, date=str(target_date), buckets_found=len(buckets))
     return buckets

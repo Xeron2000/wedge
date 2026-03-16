@@ -83,6 +83,20 @@ class PolymarketClient:
 
         return await asyncio.to_thread(_fetch)
 
+    async def get_event_by_slug(self, slug: str) -> dict | None:
+        """Fetch a specific event by slug from Gamma API (for market scanning)."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(f"https://gamma-api.polymarket.com/events?slug={slug}")
+                response.raise_for_status()
+                events = response.json()
+                if isinstance(events, list) and len(events) > 0:
+                    return events[0]
+                return None
+        except Exception as e:
+            log.error("polymarket_get_event_failed", slug=slug, error=str(e))
+            return None
+
     async def get_order_book(self, token_id: str) -> dict | None:
         if not self._client:
             return None
