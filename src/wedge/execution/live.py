@@ -8,7 +8,7 @@ from wedge.db import Database
 from wedge.execution.executor import validate_order
 from wedge.execution.models import OrderRequest, OrderResult
 from wedge.log import get_logger
-from wedge.market.models import MarketBucket, Position
+from wedge.market.models import Position
 from wedge.market.polymarket import PolymarketClient
 
 log = get_logger("execution.live")
@@ -80,7 +80,11 @@ class LiveExecutor:
                 created_at=now,
             )
             if not inserted:
-                log.info("live_duplicate_skipped", run_id=request.run_id, temp_value=request.temp_value)
+                log.info(
+                    "live_duplicate_skipped",
+                    run_id=request.run_id,
+                    temp_value=request.temp_value,
+                )
                 return OrderResult(success=True, error="duplicate")
 
             # Deduct balance immediately to prevent double-spending
@@ -97,6 +101,7 @@ class LiveExecutor:
                 temp_value=request.temp_value,
                 filled_price=result.filled_price,
             )
+            await self._persist_balance_snapshot()
             return result
 
         # Maker failed, try taker
@@ -114,11 +119,20 @@ class LiveExecutor:
                 city=request.city,
                 temp_value=request.temp_value,
             )
+            await self._persist_balance_snapshot()
             return result
 
         # Both failed - refund balance
         async with self._balance_lock:
             self._balance += request.size
+        await self._db.delete_trade(
+            run_id=request.run_id,
+            city=request.city,
+            date=request.date.isoformat(),
+            temp_f=request.temp_value,
+            strategy=request.strategy,
+        )
+        await self._persist_balance_snapshot()
 
         # Both failed
         log.error(
@@ -127,6 +141,12 @@ class LiveExecutor:
             error=result.error if result else "unknown",
         )
         return result or OrderResult(success=False, error="execution_failed")
+
+    async def _persist_balance_snapshot(self) -> None:
+        """Persist current balance so a crash mid-run doesn't lose accounting state."""
+        async with self._balance_lock:
+            balance = self._balance
+        await self._db.insert_bankroll_snapshot(balance, 0.0, datetime.now(UTC).isoformat())
 
     async def _try_maker_order(self, request: OrderRequest) -> OrderResult | None:
         """Try to fill as maker (limit order below mid).

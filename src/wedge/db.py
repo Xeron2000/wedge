@@ -79,8 +79,13 @@ class Database:
                 "ALTER TABLE trades ADD COLUMN temp_unit TEXT NOT NULL DEFAULT 'F'"
             )
             await self._conn.commit()
-        except Exception:
-            pass  # Column already exists
+        except aiosqlite.OperationalError as e:
+            # SQLite raises OperationalError("duplicate column name: ...") when column exists.
+            # Only ignore that specific case; re-raise anything else to avoid silent corruption.
+            if "duplicate column name" in str(e).lower():
+                pass
+            else:
+                raise
 
     async def close(self) -> None:
         if self._conn:
@@ -140,6 +145,22 @@ class Database:
         except aiosqlite.IntegrityError:
             return False
 
+    async def delete_trade(
+        self,
+        *,
+        run_id: str,
+        city: str,
+        date: str,
+        temp_f: int,
+        strategy: str,
+    ) -> None:
+        """Delete a trade row by its unique key (used to rollback failed live executions)."""
+        await self.conn.execute(
+            "DELETE FROM trades WHERE run_id=? AND city=? AND date=? AND temp_f=? AND strategy=?",
+            (run_id, city, date, temp_f, strategy),
+        )
+        await self.conn.commit()
+
     async def insert_forecast(
         self,
         *,
@@ -184,7 +205,8 @@ class Database:
             fee_rate: Fee rate on profits (default 2% for Polymarket)
         """
         cursor = await self.conn.execute(
-            "SELECT id, temp_f, entry_price, size FROM trades WHERE city=? AND date=? AND settled=0",
+            "SELECT id, temp_f, entry_price, size FROM trades "
+            "WHERE city=? AND date=? AND settled=0",
             (city, date),
         )
         rows = await cursor.fetchall()
@@ -210,8 +232,13 @@ class Database:
                     "UPDATE trades SET fee_applied=? WHERE id=?",
                     (fee_rate if pnl > 0 else 0.0, row["id"]),
                 )
-            except Exception:
-                pass  # Column may not exist in older schemas
+            except aiosqlite.OperationalError as e:
+                # Backward-compat: older DBs may not have fee_applied column yet.
+                msg = str(e).lower()
+                if "no such column" in msg and "fee_applied" in msg:
+                    pass
+                else:
+                    raise
             count += 1
         await self.conn.commit()
         return count
@@ -321,7 +348,8 @@ class Database:
     async def get_last_balance_snapshot(self) -> tuple[float, float] | None:
         """Get (balance, unrealized_pnl) from the most recent snapshot."""
         cursor = await self.conn.execute(
-            "SELECT balance, unrealized_pnl FROM bankroll_snapshots ORDER BY created_at DESC LIMIT 1"
+            "SELECT balance, unrealized_pnl FROM bankroll_snapshots "
+            "ORDER BY created_at DESC LIMIT 1"
         )
         row = await cursor.fetchone()
         return (row["balance"], row["unrealized_pnl"]) if row else None
