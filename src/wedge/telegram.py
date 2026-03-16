@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from wedge.config import Settings
 from wedge.db import Database
 from wedge.log import get_logger
-from wedge.monitoring.notify import format_stats
+from wedge.monitoring.notify import format_positions, format_stats
 
 log = get_logger("telegram")
 
@@ -39,6 +39,7 @@ class TelegramBotManager:
         self._app.add_handler(CommandHandler("scan", self._handle_scan))
         self._app.add_handler(CommandHandler("stats", self._handle_stats))
         self._app.add_handler(CommandHandler("status", self._handle_status))
+        self._app.add_handler(CommandHandler("positions", self._handle_positions))
         self._app.add_handler(CommandHandler("stop", self._handle_stop))
         self._app.add_handler(CommandHandler("help", self._handle_help))
 
@@ -116,6 +117,14 @@ class TelegramBotManager:
         ])
         await update.message.reply_text(msg)
 
+    async def _handle_positions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self._check_auth(update):
+            return
+
+        positions = await self._db.get_open_positions()
+        msg = format_positions(positions)
+        await update.message.reply_text(msg)
+
     async def _handle_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._check_auth(update):
             return
@@ -131,6 +140,7 @@ class TelegramBotManager:
             "/scan <city> — Run single scan",
             "/stats [days] — Show P&L and Brier",
             "/status — Current bot status",
+            "/positions — Show open positions",
             "/stop — Graceful shutdown",
             "/help — This message",
         ])

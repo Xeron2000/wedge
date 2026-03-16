@@ -161,6 +161,12 @@ async def run_pipeline(
         )
         await notifier.send(summary)
 
+        # Also send positions summary if there are open positions
+        positions = await db.get_open_positions()
+        if positions:
+            from wedge.monitoring.notify import format_positions
+            await notifier.send(format_positions(positions))
+
     structlog.contextvars.unbind_contextvars("run_id")
 
 

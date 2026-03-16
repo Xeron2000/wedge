@@ -255,3 +255,14 @@ class Database:
             (str(start_date), str(end_date)),
         )
         return [dict(row) for row in await cursor.fetchall()]
+
+    async def get_open_positions(self) -> list[dict]:
+        """Get all unsettled positions."""
+        cursor = await self.conn.execute(
+            """SELECT city, date, temp_f, strategy, entry_price, size,
+                      p_model, edge, created_at
+               FROM trades
+               WHERE settled = 0
+               ORDER BY date, city, temp_f"""
+        )
+        return [dict(row) for row in await cursor.fetchall()]

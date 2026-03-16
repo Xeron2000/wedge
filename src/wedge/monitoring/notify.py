@@ -102,3 +102,34 @@ def format_stats(
         f"P&L: ${total_pnl:.2f}",
         f"Brier: {brier_str}{brier_status}",
     ])
+
+
+def format_positions(positions: list[dict]) -> str:
+    """Format open positions for display."""
+    if not positions:
+        return "[Positions]\nNo open positions"
+
+    lines = [f"[Positions] ({len(positions)} open)"]
+    lines.append("━━━━━━━━━━━━━━━")
+
+    total_invested = sum(p["size"] for p in positions)
+
+    # Group by date
+    from collections import defaultdict
+    by_date = defaultdict(list)
+    for p in positions:
+        by_date[p["date"]].append(p)
+
+    for date in sorted(by_date.keys()):
+        date_positions = by_date[date]
+        date_invested = sum(p["size"] for p in date_positions)
+        lines.append(f"\n{date} (${date_invested:.0f})")
+
+        for p in sorted(date_positions, key=lambda x: x["temp_f"]):
+            edge_pct = p["edge"] * 100
+            lines.append(
+                f"  {p['city']} {p['temp_f']}°F: ${p['size']:.0f} @{p['entry_price']:.2f} ({edge_pct:.0f}% edge)"
+            )
+
+    lines.append(f"\nTotal invested: ${total_invested:.2f}")
+    return "\n".join(lines)
