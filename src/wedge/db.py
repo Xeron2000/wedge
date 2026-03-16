@@ -275,3 +275,12 @@ class Database:
                ORDER BY date, city, temp_f"""
         )
         return [dict(row) for row in await cursor.fetchall()]
+
+    async def has_open_position(self, city: str, date: str, temp_f: int) -> bool:
+        """Check if there's already an open position for this market."""
+        cursor = await self.conn.execute(
+            "SELECT COUNT(*) FROM trades WHERE city=? AND date=? AND temp_f=? AND settled=0",
+            (city, date, temp_f),
+        )
+        row = await cursor.fetchone()
+        return row[0] > 0 if row else False

@@ -257,6 +257,16 @@ async def _process_city(
     # 7. Execute orders
     orders = 0
     for pos in ladder_positions + tail_positions:
+        # Skip if already have an open position for this market
+        if await db.has_open_position(pos.bucket.city, pos.bucket.date.isoformat(), pos.bucket.temp_f):
+            log.info(
+                "position_exists_skipping",
+                city=pos.bucket.city,
+                date=str(pos.bucket.date),
+                temp_f=pos.bucket.temp_f,
+            )
+            continue
+
         request = OrderRequest(
             run_id=run_id,
             token_id=pos.bucket.token_id,
