@@ -79,13 +79,25 @@ class Settings(BaseSettings):
     max_bet_pct: float = 0.05
     db_path: str = Field(default_factory=lambda: str(get_data_dir() / "wedge.db"))
 
-    ladder_edge: float = 0.08  # Increased from 0.05 to account for model calibration error
+    # Ladder strategy
+    ladder_edge: float = 0.08
     ladder_alloc: float = 0.70
-    tail_edge: float = 0.12  # Increased from 0.08 for higher confidence threshold
+
+    # Tail strategy
+    tail_edge: float = 0.12
     tail_odds: float = 10.0
     tail_alloc: float = 0.20
+    tail_max_correlated: int = 2  # Max positions per climate region
+    daily_loss_limit: float = 200.0  # Stop trading if daily loss exceeds this
 
+    # Fee and slippage configuration
+    fee_rate: float = 0.02  # Polymarket 2% fee on winnings
+    slippage_model: str = "volume_based"  # volume_based or fixed
+
+    # Risk management
     brier_threshold: float = 0.25  # Pause trading if weekly Brier score exceeds this
+    brier_decomposition: bool = True  # Track Brier reliability/resolution
+
     offsets_utc: list[str] = Field(
         default_factory=lambda: ["04:30", "10:30", "16:30", "22:30"]
     )

@@ -13,6 +13,9 @@ class MarketBucket(BaseModel):
     temp_f: int
     market_price: float  # 0-1
     implied_prob: float  # = market_price
+    volume_24h: float = 5000.0  # 24h trading volume in USD
+    open_interest: float = 0.0  # Total open interest
+    contract_type: str = "daily"  # daily, weekly, monthly
 
 
 class Position(BaseModel):

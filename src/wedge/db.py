@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS trades (
     settled INTEGER DEFAULT 0,
     outcome REAL,
     pnl REAL,
+    fee_applied REAL DEFAULT 0,
     created_at TEXT NOT NULL,
     UNIQUE(run_id, city, date, temp_f, strategy)
 );
@@ -155,10 +156,22 @@ class Database:
         )
         await self.conn.commit()
 
-    async def settle_trades(self, city: str, date: str, actual_temp: int) -> int:
+    async def settle_trades(
+        self,
+        city: str,
+        date: str,
+        actual_temp: int,
+        fee_rate: float = 0.02,
+    ) -> int:
         """Settle all unsettled trades for a city/date. Returns count settled.
 
-        Applies 2% Polymarket fee on profits (not on losses).
+        Applies fee on profits only (not on losses).
+
+        Args:
+            city: City name
+            date: Date string (ISO format)
+            actual_temp: Actual temperature in Fahrenheit
+            fee_rate: Fee rate on profits (default 2% for Polymarket)
         """
         cursor = await self.conn.execute(
             "SELECT id, temp_f, entry_price, size FROM trades WHERE city=? AND date=? AND settled=0",
@@ -171,17 +184,114 @@ class Database:
             # Binary option P&L: (outcome - entry_price) * size / entry_price
             pnl = (outcome - row["entry_price"]) * row["size"] / row["entry_price"]
 
-            # Apply 2% Polymarket fee on profits only
+            # Apply fee on profits only
             if pnl > 0:
-                pnl *= 0.98  # Deduct 2% fee
+                pnl *= (1.0 - fee_rate)
 
+            # Note: fee_applied column may not exist in older databases
+            # Use separate UPDATE for backward compatibility
             await self.conn.execute(
                 "UPDATE trades SET settled=1, outcome=?, pnl=? WHERE id=?",
                 (outcome, pnl, row["id"]),
             )
+            # Optionally track fee applied (ignore error if column doesn't exist)
+            try:
+                await self.conn.execute(
+                    "UPDATE trades SET fee_applied=? WHERE id=?",
+                    (fee_rate if pnl > 0 else 0.0, row["id"]),
+                )
+            except Exception:
+                pass  # Column may not exist in older schemas
             count += 1
         await self.conn.commit()
         return count
+
+    async def reconcile_positions(
+        self,
+        remote_positions: list[dict],
+        city: str | None = None,
+    ) -> dict:
+        """Reconcile local positions with remote (Polymarket) positions.
+
+        Args:
+            remote_positions: List of remote positions with keys:
+                - city, date, temp_f, size, entry_price
+            city: Optional city filter
+
+        Returns:
+            Reconciliation report with:
+                - matched: count of matched positions
+                - local_only: positions only in local DB
+                - remote_only: positions only in remote
+                - discrepancies: positions with different size/price
+        """
+        # Get local unsettled positions
+        if city:
+            cursor = await self.conn.execute(
+                """SELECT city, date, temp_f, size, entry_price
+                   FROM trades WHERE settled=0 AND city=?""",
+                (city,),
+            )
+        else:
+            cursor = await self.conn.execute(
+                "SELECT city, date, temp_f, size, entry_price FROM trades WHERE settled=0"
+            )
+
+        local_rows = await cursor.fetchall()
+        local_positions = [
+            {
+                "city": row["city"],
+                "date": row["date"],
+                "temp_f": row["temp_f"],
+                "size": row["size"],
+                "entry_price": row["entry_price"],
+            }
+            for row in local_rows
+        ]
+
+        # Create lookup keys
+        def make_key(pos: dict) -> tuple:
+            return (pos["city"], pos["date"], pos["temp_f"])
+
+        local_by_key = {make_key(p): p for p in local_positions}
+        remote_by_key = {make_key(p): p for p in remote_positions}
+
+        # Find matches and discrepancies
+        matched = []
+        local_only = []
+        remote_only = []
+        discrepancies = []
+
+        for key, local_pos in local_by_key.items():
+            if key not in remote_by_key:
+                local_only.append(local_pos)
+            else:
+                remote_pos = remote_by_key[key]
+                # Check for discrepancies
+                size_diff = abs(local_pos["size"] - remote_pos.get("size", 0))
+                price_diff = abs(local_pos["entry_price"] - remote_pos.get("entry_price", 0))
+
+                if size_diff > 0.01 or price_diff > 0.001:
+                    discrepancies.append({
+                        "key": key,
+                        "local": local_pos,
+                        "remote": remote_pos,
+                        "size_diff": size_diff,
+                        "price_diff": price_diff,
+                    })
+                else:
+                    matched.append(local_pos)
+
+        for key, remote_pos in remote_by_key.items():
+            if key not in local_by_key:
+                remote_only.append(remote_pos)
+
+        return {
+            "matched": len(matched),
+            "local_only": local_only,
+            "remote_only": remote_only,
+            "discrepancies": discrepancies,
+        }
 
     async def update_forecast_actual(self, city: str, date: str, actual_temp: int) -> None:
         await self.conn.execute(

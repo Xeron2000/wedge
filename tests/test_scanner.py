@@ -20,9 +20,9 @@ def _outcome(outcome: str, price: float) -> dict:
     return {"outcome": outcome, "price": str(price)}
 
 
-def _market(question: str, outcomes: list[dict], token_ids: list[str] | None = None) -> dict:
+def _market(question: str, outcomes: list[dict], token_ids: list[str] | None = None, volume_24h: float = 10000.0) -> dict:
     """Create a market within an event."""
-    m: dict = {"question": question, "outcomes": outcomes}
+    m: dict = {"question": question, "outcomes": outcomes, "volume24h": volume_24h}
     if token_ids:
         m["clobTokenIds"] = token_ids
     return m
@@ -99,7 +99,8 @@ class TestScanWeatherMarkets:
 
     @pytest.mark.asyncio
     async def test_full_successful_scan(self):
-        event = _event("Highest temperature in NYC on July 4?", [
+        # Create events for daily, weekly, and monthly contracts
+        daily_event = _event("Highest temperature in NYC on July 4?", [
             _market("Will the highest temperature in New York City be 70°F?",
                    [_outcome("Yes", 0.3), _outcome("No", 0.7)],
                    ["token_70"]),
@@ -107,8 +108,14 @@ class TestScanWeatherMarkets:
                    [_outcome("Yes", 0.4), _outcome("No", 0.6)],
                    ["token_75"]),
         ])
-        client = _make_client(event)
-        result = await scan_weather_markets(client, "NYC", TARGET_DATE)
+        # Set daily contract slug explicitly
+        async def mock_get_slug(slug):
+            return daily_event if "on-july-4" in slug else None
+
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = mock_get_slug
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=False)
 
         assert len(result) == 2
         assert result[0].temp_f == 70
@@ -120,15 +127,16 @@ class TestScanWeatherMarkets:
 
     @pytest.mark.asyncio
     async def test_market_with_no_date_still_included(self):
-        # Date is now in the slug, so this test is no longer relevant
-        # We test that markets are included when event is found
+        # Test that markets are included when event is found
         event = _event("Highest temperature in NYC on July 4?", [
             _market("Will the highest temperature in New York City be 80°F?",
                    [_outcome("Yes", 0.5), _outcome("No", 0.5)],
                    ["token_80"]),
         ])
-        client = _make_client(event)
-        result = await scan_weather_markets(client, "NYC", TARGET_DATE)
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = lambda slug: event if "on-july-4" in slug else None
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=False)
 
         assert len(result) == 1
         assert result[0].temp_f == 80
@@ -141,11 +149,116 @@ class TestScanWeatherMarkets:
                    [_outcome("Yes", 0.6), _outcome("No", 0.4)],
                    ["token_70_75"]),
         ])
-        client = _make_client(event)
-        result = await scan_weather_markets(client, "NYC", TARGET_DATE)
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = lambda slug: event if "on-july-4" in slug else None
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=False)
 
         # Should extract 70 from the question
         assert len(result) == 1
-        assert result[0].temp_f in [70, 75]  # Could match either number
+        assert result[0].temp_f in [70, 75]
+
+    @pytest.mark.asyncio
+    async def test_liquidity_filter_low_volume(self):
+        """Test that low volume markets are filtered out."""
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 75°F?",
+                   [_outcome("Yes", 0.5), _outcome("No", 0.5)],
+                   ["token_75"]),
+        ])
+        # Add volume data (below threshold)
+        event["markets"][0]["volume24h"] = 1000  # Below $5K threshold
+
+        client = _make_client(event)
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, min_volume=5000)
+
+        # Should be filtered out due to low volume
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_liquidity_filter_high_volume(self):
+        """Test that high volume markets are included."""
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 75°F?",
+                   [_outcome("Yes", 0.5), _outcome("No", 0.5)],
+                   ["token_75"]),
+        ])
+        # Add volume data (above threshold)
+        event["markets"][0]["volume24h"] = 10000  # Above $5K threshold
+
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = lambda slug: event if "on-july-4" in slug else None
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, min_volume=5000, include_weekly=False, include_monthly=False)
+
+        # Should be included
+        assert len(result) == 1
+        assert result[0].volume_24h == 10000
+
+    @pytest.mark.asyncio
+    async def test_contract_type_detection(self):
+        """Test detection of daily/weekly/monthly contract types."""
+        # Daily contract - use specific daily slug format
+        # The slug format is: highest-temperature-in-nyc-on-july-4-2026
+        event_daily = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 75°F?",
+                   [_outcome("Yes", 0.5), _outcome("No", 0.5)],
+                   ["token_75"]),
+        ])
+        event_daily["markets"][0]["volume24h"] = 10000
+
+        async def mock_get_slug(slug):
+            # Daily slug: highest-temperature-in-nyc-on-july-4-2026
+            if slug == "highest-temperature-in-nyc-on-july-4-2026":
+                return event_daily
+            return None
+
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = mock_get_slug
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=False)
+
+        assert len(result) == 1
+        assert result[0].contract_type == "daily"
+
+    @pytest.mark.asyncio
+    async def test_weekly_contract_detection(self):
+        """Test detection of weekly contract type."""
+        event_weekly = _event("Highest temperature in NYC this week?", [
+            _market("Will the highest temperature in New York City this week be 75°F?",
+                   [_outcome("Yes", 0.5), _outcome("No", 0.5)],
+                   ["token_75"]),
+        ])
+        event_weekly["markets"][0]["volume24h"] = 10000
+
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = lambda slug: event_weekly if "week" in slug else None
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=True, include_monthly=False)
+
+        # Should find weekly contract
+        assert len(result) >= 1
+        weekly_contracts = [r for r in result if r.contract_type == "weekly"]
+        assert len(weekly_contracts) >= 1
+
+    @pytest.mark.asyncio
+    async def test_monthly_contract_detection(self):
+        """Test detection of monthly contract type."""
+        event_monthly = _event("Highest temperature in NYC in July?", [
+            _market("Will the highest temperature in New York City in July be 85°F?",
+                   [_outcome("Yes", 0.4), _outcome("No", 0.6)],
+                   ["token_85"]),
+        ])
+        event_monthly["markets"][0]["volume24h"] = 10000
+
+        client = AsyncMock()
+        client.get_event_by_slug.side_effect = lambda slug: event_monthly if "in-july" in slug else None
+
+        result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=True)
+
+        # Should find monthly contract
+        assert len(result) >= 1
+        monthly_contracts = [r for r in result if r.contract_type == "monthly"]
+        assert len(monthly_contracts) >= 1  # Could match either number
 
 

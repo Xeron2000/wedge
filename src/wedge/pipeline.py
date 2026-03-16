@@ -224,12 +224,14 @@ async def _process_city(
         log.warning("no_markets", city=city_cfg.name)
         return 0
 
-    # 5. Detect edges
+    # 5. Detect edges (with calibration, fees, slippage)
     signals = detect_edges(
         forecast,
         markets,
         ladder_threshold=settings.ladder_edge,
         tail_threshold=settings.tail_edge,
+        fee_rate=settings.fee_rate,
+        target_date=target_date,
     )
     if not signals:
         log.info("no_edges", city=city_cfg.name)
@@ -237,7 +239,7 @@ async def _process_city(
 
     log.info("edges_found", city=city_cfg.name, count=len(signals))
 
-    # 6. Generate positions
+    # 6. Generate positions with risk controls
     ladder_positions = evaluate_ladder(
         signals, ladder_budget,
         edge_threshold=settings.ladder_edge,
@@ -252,6 +254,8 @@ async def _process_city(
         kelly_fraction=settings.kelly_fraction,
         max_bet=settings.max_bet,
         max_bet_pct=settings.max_bet_pct,
+        max_correlated=settings.tail_max_correlated,
+        daily_loss_limit=settings.daily_loss_limit,
     )
 
     # 7. Execute orders
@@ -322,7 +326,11 @@ async def run_settlement(
 
     Fetches actual observed temperatures and updates forecasts + trades.
     Returns total number of trades settled.
+
+    Includes retry logic for API failures (3 attempts with exponential backoff).
     """
+    import asyncio
+
     unsettled = await db.get_unsettled_dates()
     if not unsettled:
         log.info("settlement_no_pending")
@@ -332,6 +340,7 @@ async def run_settlement(
 
     city_map = {c.name: c for c in settings.cities}
     total_settled = 0
+    pending_retry: list[tuple[str, str]] = []  # (city, date) pairs for retry
 
     async with httpx.AsyncClient() as http_client:
         for city_name, trade_date in unsettled:
@@ -340,15 +349,41 @@ async def run_settlement(
                 log.warning("settlement_unknown_city", city=city_name)
                 continue
 
-            actual_temp = await fetch_actual_temperature(
-                http_client, city_cfg, trade_date
-            )
+            # Retry logic: 3 attempts with exponential backoff
+            actual_temp = None
+            for attempt in range(1, 4):
+                try:
+                    actual_temp = await fetch_actual_temperature(
+                        http_client, city_cfg, trade_date
+                    )
+                    if actual_temp is not None:
+                        break
+                except Exception as e:
+                    log.warning(
+                        "fetch_temp_retry",
+                        city=city_name,
+                        date=trade_date,
+                        attempt=attempt,
+                        error=str(e),
+                    )
+                    if attempt < 3:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
             if actual_temp is None:
-                log.warning("settlement_no_actual", city=city_name, date=trade_date)
+                log.warning(
+                    "settlement_no_actual",
+                    city=city_name,
+                    date=trade_date,
+                    attempts=3,
+                )
+                pending_retry.append((city_name, trade_date))
                 continue
 
+            # Update forecast and settle trades
             await db.update_forecast_actual(city_name, trade_date, actual_temp)
-            count = await db.settle_trades(city_name, trade_date, actual_temp)
+            count = await db.settle_trades(
+                city_name, trade_date, actual_temp, fee_rate=settings.fee_rate
+            )
             total_settled += count
             log.info(
                 "settlement_settled",
@@ -358,9 +393,17 @@ async def run_settlement(
                 trades_settled=count,
             )
 
+    # Log pending retries for manual intervention
+    if pending_retry:
+        log.warning(
+            "settlement_pending_retry",
+            count=len(pending_retry),
+            pairs=pending_retry,
+        )
+
     if total_settled > 0 and notifier and hasattr(notifier, "send"):
         await notifier.send(
-            f"[Settlement] Settled {total_settled} trade(s) across {len(unsettled)} date(s)"
+            f"[Settlement] Settled {total_settled} trade(s) across {len(unsettled) - len(pending_retry)} date(s) ({len(pending_retry)} pending retry)"
         )
 
     log.info("settlement_complete", total_settled=total_settled)
