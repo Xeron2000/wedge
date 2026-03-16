@@ -43,6 +43,23 @@ async def run_pipeline(
     await db.insert_run(run_id, now.isoformat())
     log.info("pipeline_start", mode=settings.mode, bankroll=settings.bankroll)
 
+    # Check Brier score before trading (weekly window)
+    brier = await db.get_brier_score(days=7)
+    if brier is not None and brier > settings.brier_threshold:
+        log.warning(
+            "brier_threshold_exceeded",
+            brier=f"{brier:.4f}",
+            threshold=settings.brier_threshold,
+            action="skipping_trading",
+        )
+        await db.complete_run(run_id, datetime.now(UTC).isoformat(), "paused_brier")
+        if notifier and hasattr(notifier, "send"):
+            await notifier.send(
+                f"⚠️ Trading paused: Brier score {brier:.4f} exceeds threshold {settings.brier_threshold}"
+            )
+        structlog.contextvars.unbind_contextvars("run_id")
+        return
+
     # Restore balance from last snapshot (persists across pipeline runs)
     current_balance = await db.get_last_balance(default=settings.bankroll)
 
@@ -80,12 +97,13 @@ async def run_pipeline(
         for city_cfg in settings.cities:
             try:
                 # Compute target dates per city timezone (contract settlement is local)
-                # Polymarket has markets for today, tomorrow, and day after (0-2 days)
+                # Only trade 1-2 day forecasts for better accuracy
                 city_tz = ZoneInfo(city_cfg.timezone)
                 local_today = datetime.now(city_tz).date()
 
-                # Scan markets for next 3 days (today, tomorrow, day after)
-                for days_ahead in range(3):
+                # Scan markets for next 2 days only (tomorrow and day after)
+                # Skip today (0 days) as it's too close to settlement
+                for days_ahead in range(1, 3):
                     target_date = local_today + timedelta(days=days_ahead)
 
                     orders = await _process_city(

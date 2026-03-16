@@ -241,3 +241,17 @@ class Database:
             "best_trade": row["best_trade"] or 0,
             "win_rate": (row["wins"] or 0) / row["total_trades"],
         }
+
+    async def get_settled_trades(self, start_date, end_date) -> list[dict]:
+        """Get all settled trades in date range for backtesting."""
+        cursor = await self.conn.execute(
+            """SELECT city, date, temp_f, strategy, entry_price, size,
+                      p_model, p_market, edge, outcome, pnl, created_at
+               FROM trades
+               WHERE settled = 1
+               AND date >= ?
+               AND date <= ?
+               ORDER BY date, city""",
+            (str(start_date), str(end_date)),
+        )
+        return [dict(row) for row in await cursor.fetchall()]

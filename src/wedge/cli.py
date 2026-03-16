@@ -71,5 +71,35 @@ def stats(
     asyncio.run(show_stats(settings, days))
 
 
+@app.command()
+def backtest(
+    days: int = typer.Option(30, "--days", "-d", help="Number of days to backtest"),
+) -> None:
+    """Run backtest on historical settled trades."""
+    from datetime import datetime, timedelta
+
+    settings = Settings.load()
+    setup_logging()
+
+    from wedge.backtest import run_backtest
+
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days)
+    asyncio.run(run_backtest(settings, start_date, end_date))
+
+
+@app.command()
+def calibration(
+    days: int = typer.Option(30, "--days", "-d", help="Number of days to analyze"),
+) -> None:
+    """Validate model calibration against actual outcomes."""
+    settings = Settings.load()
+    setup_logging()
+
+    from wedge.backtest import validate_model_calibration
+
+    asyncio.run(validate_model_calibration(settings, days))
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

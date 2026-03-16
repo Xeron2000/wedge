@@ -23,22 +23,21 @@ _MONTH_MAP = {
 _CITY_ALIASES = {
     "new york": "NYC",
     "nyc": "NYC",
-    "chicago": "Chicago",
     "miami": "Miami",
-    "dallas": "Dallas",
-    "seattle": "Seattle",
-    "atlanta": "Atlanta",
+    "seoul": "Seoul",
+    "london": "London",
+    "shanghai": "Shanghai",
+    "wellington": "Wellington",
 }
 
-# Map city names to Polymarket slug format
+# Map city names to Polymarket slug format (high liquidity markets only)
 _CITY_TO_SLUG = {
-    "NYC": "new-york-city",
-    "Chicago": "chicago",
+    "NYC": "nyc",
     "Miami": "miami",
-    "Dallas": "dallas",
-    "Seattle": "seattle",
-    "Atlanta": "atlanta",
     "Seoul": "seoul",
+    "London": "london",
+    "Shanghai": "shanghai",
+    "Wellington": "wellington",
 }
 
 

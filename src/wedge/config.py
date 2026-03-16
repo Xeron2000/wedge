@@ -54,14 +54,14 @@ class CityConfig(BaseModel):
 
 # CRITICAL: Coordinates MUST match the airport weather stations
 # Polymarket resolves on. Using city center coords causes 3-8°F error.
+# High liquidity markets only (>$25K daily volume)
 DEFAULT_CITIES = [
-    CityConfig(name="NYC", lat=40.7772, lon=-73.8726, timezone="America/New_York", station="KLGA"),
-    CityConfig(name="Chicago", lat=41.9742, lon=-87.9073, timezone="America/Chicago", station="KORD"),
-    CityConfig(name="Miami", lat=25.7959, lon=-80.2870, timezone="America/New_York", station="KMIA"),
-    CityConfig(name="Dallas", lat=32.8471, lon=-96.8518, timezone="America/Chicago", station="KDAL"),
-    CityConfig(name="Seattle", lat=47.4502, lon=-122.3088, timezone="America/Los_Angeles", station="KSEA"),
-    CityConfig(name="Atlanta", lat=33.6407, lon=-84.4277, timezone="America/New_York", station="KATL"),
     CityConfig(name="Seoul", lat=37.4602, lon=126.4407, timezone="Asia/Seoul", station="RKSI"),
+    CityConfig(name="London", lat=51.4700, lon=-0.4543, timezone="Europe/London", station="EGLL"),
+    CityConfig(name="NYC", lat=40.7772, lon=-73.8726, timezone="America/New_York", station="KLGA"),
+    CityConfig(name="Shanghai", lat=31.1434, lon=121.8052, timezone="Asia/Shanghai", station="ZSSS"),
+    CityConfig(name="Miami", lat=25.7959, lon=-80.2870, timezone="America/New_York", station="KMIA"),
+    CityConfig(name="Wellington", lat=-41.3272, lon=174.8050, timezone="Pacific/Auckland", station="NZWN"),
 ]
 
 
@@ -79,13 +79,13 @@ class Settings(BaseSettings):
     max_bet_pct: float = 0.05
     db_path: str = Field(default_factory=lambda: str(get_data_dir() / "wedge.db"))
 
-    ladder_edge: float = 0.05
+    ladder_edge: float = 0.08  # Increased from 0.05 to account for model calibration error
     ladder_alloc: float = 0.70
-    tail_edge: float = 0.08
+    tail_edge: float = 0.12  # Increased from 0.08 for higher confidence threshold
     tail_odds: float = 10.0
     tail_alloc: float = 0.20
 
-    brier_threshold: float = 0.25
+    brier_threshold: float = 0.25  # Pause trading if weekly Brier score exceeds this
     offsets_utc: list[str] = Field(
         default_factory=lambda: ["04:30", "10:30", "16:30", "22:30"]
     )
