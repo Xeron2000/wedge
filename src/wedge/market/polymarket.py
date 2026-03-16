@@ -142,3 +142,52 @@ class PolymarketClient:
                 return False
 
         return await asyncio.to_thread(_cancel)
+
+    async def get_order_status(self, order_id: str) -> dict | None:
+        """Get order status by ID.
+
+        Returns:
+            Order status dict with 'state' field (open, filled, partially_filled, cancelled)
+            or None if not found/error.
+        """
+        if not self._client:
+            return None
+
+        def _fetch() -> dict | None:
+            try:
+                return self._client.get_order(order_id)
+            except Exception as e:
+                log.error("polymarket_order_status_failed", order_id=order_id, error=str(e))
+                return None
+
+        return await asyncio.to_thread(_fetch)
+
+    async def get_positions(self) -> list:
+        """Get current positions from Polymarket.
+
+        Returns list of position dicts with token_id, position, avg_price, etc.
+        """
+        if not self._client:
+            return []
+
+        def _fetch() -> list:
+            try:
+                return self._client.get_positions()
+            except Exception as e:
+                log.error("polymarket_positions_failed", error=str(e))
+                return []
+
+        return await asyncio.to_thread(_fetch)
+
+    async def get_balance(self) -> float:
+        """Get available balance."""
+        if not self._client:
+            return 0.0
+
+        def _fetch() -> float:
+            try:
+                return float(self._client.get_balance())
+            except Exception:
+                return 0.0
+
+        return await asyncio.to_thread(_fetch)

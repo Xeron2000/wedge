@@ -182,7 +182,7 @@ def evaluate_tail(
             continue
 
         # Calculate bet size
-        bet = fractional_kelly(
+        result = fractional_kelly(
             p_model=signal.p_model,
             market_price=signal.p_market,
             bankroll=remaining,
@@ -190,6 +190,7 @@ def evaluate_tail(
             max_bet=max_bet,
             max_bet_pct=max_bet_pct,
         )
+        bet = result.bet_size
         if bet <= 0:
             continue
         if bet > remaining:

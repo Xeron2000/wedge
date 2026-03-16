@@ -9,9 +9,9 @@ def evaluate_ladder(
     signals: list[EdgeSignal],
     budget: float,
     edge_threshold: float = 0.05,
-    kelly_fraction: float = 0.15,
-    max_bet: float = 100.0,
-    max_bet_pct: float = 0.05,
+    kelly_fraction: float = 0.10,  # Reduced from 0.15
+    max_bet: float = 50.0,         # Reduced from 100
+    max_bet_pct: float = 0.03,     # Reduced from 0.05
 ) -> list[Position]:
     """Select ladder positions: center-region buckets with range edge > threshold."""
     ladder_signals = [s for s in signals if s.edge > edge_threshold]
@@ -25,7 +25,7 @@ def evaluate_ladder(
     remaining = budget
 
     for signal in ladder_signals:
-        bet = fractional_kelly(
+        result = fractional_kelly(
             p_model=signal.p_model,
             market_price=signal.p_market,
             bankroll=remaining,
@@ -33,6 +33,7 @@ def evaluate_ladder(
             max_bet=max_bet,
             max_bet_pct=max_bet_pct,
         )
+        bet = result.bet_size
         if bet <= 0:
             continue
         if bet > remaining:
