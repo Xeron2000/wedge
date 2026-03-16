@@ -156,7 +156,10 @@ class Database:
         await self.conn.commit()
 
     async def settle_trades(self, city: str, date: str, actual_temp: int) -> int:
-        """Settle all unsettled trades for a city/date. Returns count settled."""
+        """Settle all unsettled trades for a city/date. Returns count settled.
+
+        Applies 2% Polymarket fee on profits (not on losses).
+        """
         cursor = await self.conn.execute(
             "SELECT id, temp_f, entry_price, size FROM trades WHERE city=? AND date=? AND settled=0",
             (city, date),
@@ -165,7 +168,13 @@ class Database:
         count = 0
         for row in rows:
             outcome = 1.0 if row["temp_f"] == actual_temp else 0.0
+            # Binary option P&L: (outcome - entry_price) * size / entry_price
             pnl = (outcome - row["entry_price"]) * row["size"] / row["entry_price"]
+
+            # Apply 2% Polymarket fee on profits only
+            if pnl > 0:
+                pnl *= 0.98  # Deduct 2% fee
+
             await self.conn.execute(
                 "UPDATE trades SET settled=1, outcome=?, pnl=? WHERE id=?",
                 (outcome, pnl, row["id"]),

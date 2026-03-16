@@ -21,6 +21,7 @@ class DryRunExecutor:
         self._max_bet = max_bet
         self._positions: list[Position] = []
         self._order_ids: set[str] = set()
+        self._positions_loaded = False
 
     async def place_order(self, request: OrderRequest) -> OrderResult:
         error = validate_order(request, self._balance, self._max_bet)
@@ -101,6 +102,10 @@ class DryRunExecutor:
 
         This allows dry-run to track unrealized P&L based on real market prices.
         """
+        # Load positions from database if not already loaded
+        if not self._positions_loaded:
+            await self._load_positions_from_db()
+
         market_map = {
             (m.city, m.date, m.temp_f): m.market_price for m in markets
         }
@@ -113,10 +118,50 @@ class DryRunExecutor:
                 pos.bucket.implied_prob = current_price
 
     async def get_unrealized_pnl(self) -> float:
-        """Calculate unrealized P&L from current position values."""
+        """Calculate unrealized P&L from current position values.
+
+        For binary options: shares = size / entry_price
+        Current value = shares * current_price = size * current_price / entry_price
+        Unrealized P&L = current_value - size = size * (current_price - entry_price) / entry_price
+        """
+        # Load positions from database if not already loaded
+        if not self._positions_loaded:
+            await self._load_positions_from_db()
+
         total_pnl = 0.0
         for pos in self._positions:
-            # P&L = (current_price - entry_price) * size
-            pnl = (pos.bucket.market_price - pos.entry_price) * pos.size
+            # Binary option P&L formula
+            pnl = pos.size * (pos.bucket.market_price - pos.entry_price) / pos.entry_price
             total_pnl += pnl
         return total_pnl
+
+    async def _load_positions_from_db(self) -> None:
+        """Load open positions from database into memory."""
+        open_positions = await self._db.get_open_positions()
+        self._positions = []
+
+        for pos_dict in open_positions:
+            from datetime import date as date_type
+
+            # Parse date string to date object
+            date_obj = date_type.fromisoformat(pos_dict["date"])
+
+            self._positions.append(
+                Position(
+                    bucket=MarketBucket(
+                        token_id=pos_dict.get("token_id", ""),
+                        city=pos_dict["city"],
+                        date=date_obj,
+                        temp_f=pos_dict["temp_f"],
+                        market_price=pos_dict["entry_price"],  # Will be updated by update_position_prices
+                        implied_prob=pos_dict["entry_price"],
+                    ),
+                    size=pos_dict["size"],
+                    entry_price=pos_dict["entry_price"],
+                    strategy=pos_dict["strategy"],
+                    p_model=pos_dict.get("p_model", 0.0),
+                    edge=pos_dict.get("edge", 0.0),
+                )
+            )
+
+        self._positions_loaded = True

@@ -282,13 +282,15 @@ def _generate_synthetic_markets(
 ) -> list[MarketBucket]:
     """Generate synthetic market buckets for dry-run testing.
     Simulates market inefficiency by adding noise to model probabilities.
+    Uses realistic ±2% noise to match real Polymarket spreads.
     Seeded by city+date for reproducibility."""
     import random
 
     rng = random.Random(f"{city}_{target_date}")
     markets = []
     for temp_f, p_model in forecast.buckets.items():
-        noise = rng.uniform(-0.10, 0.10)
+        # Realistic noise: ±2% to match actual Polymarket spreads
+        noise = rng.uniform(-0.02, 0.02)
         market_price = max(0.01, min(0.99, p_model + noise))
         markets.append(
             MarketBucket(
