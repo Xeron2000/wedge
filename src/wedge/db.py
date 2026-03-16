@@ -378,8 +378,8 @@ class Database:
     async def get_open_positions(self) -> list[dict]:
         """Get all unsettled positions."""
         cursor = await self.conn.execute(
-            """SELECT city, date, temp_f, strategy, entry_price, size,
-                      p_model, edge, created_at
+            """SELECT city, date, temp_f, temp_f AS temp_value, 'F' AS temp_unit,
+                      strategy, entry_price, size, p_model, edge, created_at
                FROM trades
                WHERE settled = 0
                ORDER BY date, city, temp_f"""
