@@ -3,9 +3,29 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import httpx
+
 from wedge.log import get_logger
 
 log = get_logger("market.polymarket")
+
+
+class PublicPolymarketClient:
+    """Public Polymarket client for market data (no authentication required)."""
+
+    def __init__(self) -> None:
+        self._base_url = "https://gamma-api.polymarket.com"
+
+    async def get_markets(self) -> list[dict]:
+        """Fetch all markets from public Gamma API."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(f"{self._base_url}/markets")
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            log.error("polymarket_get_markets_failed", error=str(e))
+            return []
 
 
 class PolymarketClient:

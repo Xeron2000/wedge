@@ -13,7 +13,7 @@ from wedge.db import Database
 from wedge.execution.models import OrderRequest
 from wedge.log import get_logger
 from wedge.market.models import MarketBucket
-from wedge.market.polymarket import PolymarketClient
+from wedge.market.polymarket import PolymarketClient, PublicPolymarketClient
 from wedge.market.scanner import scan_weather_markets
 from wedge.strategy.edge import detect_edges
 from wedge.strategy.ladder import evaluate_ladder
@@ -47,21 +47,24 @@ async def run_pipeline(
     current_balance = await db.get_last_balance(default=settings.bankroll)
 
     # Set up executor and shared Polymarket client
-    # IMPORTANT: Both modes need Polymarket client for real market data
-    poly_client: PolymarketClient | None = None
-    if settings.polymarket_api_key and settings.polymarket_api_secret:
+    # For market data: use public client (no auth needed)
+    # For trading: use authenticated client (requires credentials)
+    poly_client: PolymarketClient | PublicPolymarketClient | None = None
+
+    if settings.mode == "live":
+        # Live mode requires authenticated client for trading
+        if not (settings.polymarket_private_key and settings.polymarket_api_key and settings.polymarket_api_secret):
+            raise ValueError("Live mode requires Polymarket API credentials")
         poly_client = PolymarketClient(
             settings.polymarket_private_key,
             settings.polymarket_api_key,
             settings.polymarket_api_secret,
         )
         await poly_client.connect()
-
-    if settings.mode == "live":
-        if not poly_client:
-            raise ValueError("Live mode requires Polymarket API credentials")
         executor = LiveExecutor(db, poly_client, current_balance, settings.max_bet)
     else:
+        # Dry-run mode: use public client for market data (no credentials needed)
+        poly_client = PublicPolymarketClient()
         executor = DryRunExecutor(db, current_balance, settings.max_bet)
 
     # Budget allocation based on current balance, not initial bankroll

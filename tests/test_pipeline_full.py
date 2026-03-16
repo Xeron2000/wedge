@@ -324,6 +324,7 @@ class TestRunPipeline:
         ):
             mock_exec_instance = AsyncMock()
             mock_exec_instance.get_balance.return_value = 1000.0
+            mock_exec_instance.get_unrealized_pnl.return_value = 0.0
             MockExec.return_value = mock_exec_instance
             await run_pipeline(settings, db)
 
@@ -336,12 +337,16 @@ class TestRunPipeline:
             bankroll=1000.0,
             cities=[CityConfig(name="NYC", lat=40.77, lon=-73.87, timezone="America/New_York")],
             db_path=str(tmp_path / "test.db"),
+            polymarket_private_key="test_key",
+            polymarket_api_key="test_api_key",
+            polymarket_api_secret="test_api_secret",
         )
         from wedge.pipeline import run_pipeline
 
         mock_poly = AsyncMock()
         mock_exec = AsyncMock()
         mock_exec.get_balance.return_value = 1000.0
+        mock_exec.get_unrealized_pnl.return_value = 0.0
 
         with (
             patch("wedge.pipeline.PolymarketClient", return_value=mock_poly),
@@ -358,6 +363,7 @@ class TestRunPipeline:
 
         mock_exec = AsyncMock()
         mock_exec.get_balance.return_value = 999.0
+        mock_exec.get_unrealized_pnl.return_value = 0.0
 
         with (
             patch("wedge.pipeline.DryRunExecutor", return_value=mock_exec),
@@ -380,6 +386,7 @@ class TestRunPipeline:
 
         mock_exec = AsyncMock()
         mock_exec.get_balance.return_value = 1000.0
+        mock_exec.get_unrealized_pnl.return_value = 0.0
 
         call_count = 0
 
@@ -403,6 +410,7 @@ class TestRunPipeline:
 
         mock_exec = AsyncMock()
         mock_exec.get_balance.return_value = 1000.0
+        mock_exec.get_unrealized_pnl.return_value = 0.0
         notifier = AsyncMock()
 
         with (
@@ -419,6 +427,7 @@ class TestRunPipeline:
 
         mock_exec = AsyncMock()
         mock_exec.get_balance.return_value = 1000.0
+        mock_exec.get_unrealized_pnl.return_value = 0.0
 
         with (
             patch("wedge.pipeline.DryRunExecutor", return_value=mock_exec),
@@ -433,6 +442,7 @@ class TestRunPipeline:
 
         mock_exec = AsyncMock()
         mock_exec.get_balance.return_value = 850.0
+        mock_exec.get_unrealized_pnl.return_value = 0.0
 
         with (
             patch("wedge.pipeline.DryRunExecutor", return_value=mock_exec),
