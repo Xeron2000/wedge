@@ -5,30 +5,39 @@ import asyncio
 import typer
 
 from wedge.config import Settings
+from wedge.config_manager import app as config_app
 from wedge.log import setup_logging
 
 app = typer.Typer(name="wedge", help="Weather prediction market trading bot")
+app.add_typer(config_app, name="config")
 
 
 @app.command()
 def run(
     dry_run: bool = typer.Option(True, "--dry-run/--live", help="Run in simulation mode"),
-    bankroll: float = typer.Option(1000.0, "--bankroll", "-b", help="Starting bankroll"),
-    max_bet: float = typer.Option(100.0, "--max-bet", help="Max bet per trade"),
-    kelly: float = typer.Option(0.15, "--kelly", help="Kelly fraction (0-1)"),
-    ladder_edge: float = typer.Option(0.05, "--ladder-edge", help="Ladder edge threshold"),
-    tail_edge: float = typer.Option(0.08, "--tail-edge", help="Tail edge threshold"),
+    bankroll: float = typer.Option(None, "--bankroll", "-b", help="Starting bankroll"),
+    max_bet: float = typer.Option(None, "--max-bet", help="Max bet per trade"),
+    kelly: float = typer.Option(None, "--kelly", help="Kelly fraction (0-1)"),
+    ladder_edge: float = typer.Option(None, "--ladder-edge", help="Ladder edge threshold"),
+    tail_edge: float = typer.Option(None, "--tail-edge", help="Tail edge threshold"),
     telegram: bool = typer.Option(False, "--telegram", help="Enable Telegram bot"),
 ) -> None:
     """Start the 7x24 trading bot."""
-    settings = Settings(
-        mode="dry_run" if dry_run else "live",
-        bankroll=bankroll,
-        max_bet=max_bet,
-        kelly_fraction=kelly,
-        ladder_edge=ladder_edge,
-        tail_edge=tail_edge,
-    )
+    overrides = {
+        "mode": "dry_run" if dry_run else "live",
+    }
+    if bankroll is not None:
+        overrides["bankroll"] = bankroll
+    if max_bet is not None:
+        overrides["max_bet"] = max_bet
+    if kelly is not None:
+        overrides["kelly_fraction"] = kelly
+    if ladder_edge is not None:
+        overrides["ladder_edge"] = ladder_edge
+    if tail_edge is not None:
+        overrides["tail_edge"] = tail_edge
+
+    settings = Settings.load(**overrides)
     setup_logging()
 
     from wedge.scheduler import run_scheduler
@@ -41,7 +50,7 @@ def scan(
     city: str = typer.Option("NYC", "--city", help="City to scan"),
 ) -> None:
     """Run a single scan for a city."""
-    settings = Settings()
+    settings = Settings.load()
     setup_logging()
 
     from wedge.pipeline import run_single_scan
@@ -54,7 +63,7 @@ def stats(
     days: int = typer.Option(30, "--days", "-d", help="Number of days to show"),
 ) -> None:
     """Show P&L, Brier score, and trade statistics."""
-    settings = Settings()
+    settings = Settings.load()
     setup_logging()
 
     from wedge.monitoring.metrics import show_stats
