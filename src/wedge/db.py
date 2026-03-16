@@ -189,6 +189,14 @@ class Database:
         row = await cursor.fetchone()
         return row["balance"] if row else default
 
+    async def get_last_balance_snapshot(self) -> tuple[float, float] | None:
+        """Get (balance, unrealized_pnl) from the most recent snapshot."""
+        cursor = await self.conn.execute(
+            "SELECT balance, unrealized_pnl FROM bankroll_snapshots ORDER BY created_at DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return (row["balance"], row["unrealized_pnl"]) if row else None
+
     async def get_unsettled_dates(self) -> list[tuple[str, str]]:
         """Get distinct (city, date) pairs with unsettled trades where date <= today."""
         cursor = await self.conn.execute(

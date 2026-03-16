@@ -13,7 +13,9 @@ log = get_logger("execution.dry_run")
 
 
 class DryRunExecutor:
-    def __init__(self, db: Database, initial_balance: float, max_bet: float = 100.0) -> None:
+    def __init__(
+        self, db: Database, initial_balance: float, max_bet: float = 100.0
+    ) -> None:
         self._db = db
         self._balance = initial_balance
         self._max_bet = max_bet
@@ -93,3 +95,28 @@ class DryRunExecutor:
 
     async def get_balance(self) -> float:
         return self._balance
+
+    async def update_position_prices(self, markets: list[MarketBucket]) -> None:
+        """Update position prices from current market data.
+
+        This allows dry-run to track unrealized P&L based on real market prices.
+        """
+        market_map = {
+            (m.city, m.date, m.temp_f): m.market_price for m in markets
+        }
+
+        for pos in self._positions:
+            key = (pos.bucket.city, pos.bucket.date, pos.bucket.temp_f)
+            if key in market_map:
+                current_price = market_map[key]
+                pos.bucket.market_price = current_price
+                pos.bucket.implied_prob = current_price
+
+    async def get_unrealized_pnl(self) -> float:
+        """Calculate unrealized P&L from current position values."""
+        total_pnl = 0.0
+        for pos in self._positions:
+            # P&L = (current_price - entry_price) * size
+            pnl = (pos.bucket.market_price - pos.entry_price) * pos.size
+            total_pnl += pnl
+        return total_pnl

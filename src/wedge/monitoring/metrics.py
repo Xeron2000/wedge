@@ -16,6 +16,9 @@ async def show_stats(settings: Settings, days: int = 30) -> None:
         brier = await db.get_brier_score(days)
         pnl = await db.get_pnl_summary(days)
 
+        # Get latest balance snapshot for unrealized P&L
+        latest_balance = await db.get_last_balance_snapshot()
+
         log.info("=== Weather Edge Bot Stats ===")
         log.info(
             "pnl_summary",
@@ -25,6 +28,16 @@ async def show_stats(settings: Settings, days: int = 30) -> None:
             win_rate=f"{pnl['win_rate']:.1%}" if pnl["total_trades"] > 0 else "N/A",
             total_pnl=f"${pnl['total_pnl']:.2f}",
         )
+
+        if latest_balance:
+            balance, unrealized_pnl = latest_balance
+            total_value = balance + unrealized_pnl
+            log.info(
+                "portfolio",
+                cash=f"${balance:.2f}",
+                unrealized_pnl=f"${unrealized_pnl:.2f}",
+                total_value=f"${total_value:.2f}",
+            )
 
         if brier is not None:
             status = "GOOD" if brier < 0.20 else "OK" if brier < 0.25 else "PAUSED"

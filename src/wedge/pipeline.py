@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -9,8 +10,6 @@ import structlog
 
 from wedge.config import CityConfig, Settings
 from wedge.db import Database
-from wedge.execution.dry_run import DryRunExecutor
-from wedge.execution.live import LiveExecutor
 from wedge.execution.models import OrderRequest
 from wedge.log import get_logger
 from wedge.market.models import MarketBucket
@@ -22,6 +21,13 @@ from wedge.strategy.portfolio import allocate
 from wedge.strategy.tail import evaluate_tail
 from wedge.weather.client import fetch_actual_temperature, fetch_ensemble
 from wedge.weather.ensemble import parse_distribution
+
+if TYPE_CHECKING:
+    from wedge.execution.dry_run import DryRunExecutor
+    from wedge.execution.live import LiveExecutor
+else:
+    from wedge.execution.dry_run import DryRunExecutor
+    from wedge.execution.live import LiveExecutor
 
 log = get_logger("pipeline")
 
@@ -41,14 +47,19 @@ async def run_pipeline(
     current_balance = await db.get_last_balance(default=settings.bankroll)
 
     # Set up executor and shared Polymarket client
+    # IMPORTANT: Both modes need Polymarket client for real market data
     poly_client: PolymarketClient | None = None
-    if settings.mode == "live":
+    if settings.polymarket_api_key and settings.polymarket_api_secret:
         poly_client = PolymarketClient(
             settings.polymarket_private_key,
             settings.polymarket_api_key,
             settings.polymarket_api_secret,
         )
         await poly_client.connect()
+
+    if settings.mode == "live":
+        if not poly_client:
+            raise ValueError("Live mode requires Polymarket API credentials")
         executor = LiveExecutor(db, poly_client, current_balance, settings.max_bet)
     else:
         executor = DryRunExecutor(db, current_balance, settings.max_bet)
@@ -83,15 +94,34 @@ async def run_pipeline(
                     poly_client=poly_client,
                 )
                 total_orders += orders
+
+                # Update position prices for dry-run mode
+                if settings.mode == "dry_run" and poly_client:
+                    markets = await scan_weather_markets(
+                        poly_client, city_cfg.name, target_date
+                    )
+                    await executor.update_position_prices(markets)
+
             except Exception as e:
                 log.error("city_failed", city=city_cfg.name, error=str(e))
 
     status = "completed"
     await db.complete_run(run_id, datetime.now(UTC).isoformat(), status)
+
+    # Calculate unrealized P&L for dry-run mode
+    unrealized_pnl = 0.0
+    if settings.mode == "dry_run":
+        unrealized_pnl = await executor.get_unrealized_pnl()
+
     await db.insert_bankroll_snapshot(
-        await executor.get_balance(), 0, datetime.now(UTC).isoformat()
+        await executor.get_balance(), unrealized_pnl, datetime.now(UTC).isoformat()
     )
-    log.info("pipeline_complete", total_orders=total_orders)
+    log.info(
+        "pipeline_complete",
+        total_orders=total_orders,
+        balance=await executor.get_balance(),
+        unrealized_pnl=unrealized_pnl,
+    )
 
     # Send notification if notifier is available
     if notifier and hasattr(notifier, "send"):
@@ -148,12 +178,15 @@ async def _process_city(
             created_at=datetime.now(UTC).isoformat(),
         )
 
-    # 4. Scan market (dry-run uses synthetic data if no real market)
-    if settings.mode == "dry_run":
-        markets = _generate_synthetic_markets(forecast, city_cfg.name, target_date)
-    elif poly_client:
+    # 4. Scan market (prefer real market data when available)
+    if poly_client:
         markets = await scan_weather_markets(poly_client, city_cfg.name, target_date)
+    elif settings.mode == "dry_run":
+        # Fallback to synthetic for dry-run without API credentials
+        log.warning("no_polymarket_client_using_synthetic", city=city_cfg.name)
+        markets = _generate_synthetic_markets(forecast, city_cfg.name, target_date)
     else:
+        # Live mode requires real market data
         markets = []
 
     if not markets:
