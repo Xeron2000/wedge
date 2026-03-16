@@ -9,7 +9,7 @@ from wedge.market.polymarket import PolymarketClient
 
 log = get_logger("market.scanner")
 
-_TEMP_PATTERN = re.compile(r"(\d+)\s*°?\s*[CF]", re.IGNORECASE)
+_TEMP_PATTERN = re.compile(r"(\d+)\s*°?\s*([CF])", re.IGNORECASE)
 _DATE_PATTERN = re.compile(
     r"(january|february|march|april|may|june|july|august|september|"
     r"october|november|december)\s+(\d{1,2})",
@@ -158,22 +158,17 @@ async def scan_weather_markets(
             try:
                 question = market.get("question", "").lower()
 
-                # Extract temperature
+                # Extract temperature and unit directly from market question
                 temp_match = _TEMP_PATTERN.search(question)
                 if not temp_match:
                     continue
 
                 try:
                     temp_value = int(temp_match.group(1))
+                    temp_unit = temp_match.group(2).upper()
                 except (ValueError, IndexError):
                     log.warning("invalid_temp_format", question=question)
                     continue
-
-                # Detect unit and convert to Fahrenheit
-                if "°c" in question or " c " in question or question.endswith(" c"):
-                    temp_f = int(temp_value * 9 / 5 + 32)
-                else:
-                    temp_f = temp_value
 
                 # Detect contract type
                 contract_type = _detect_contract_type(question)
@@ -278,7 +273,8 @@ async def scan_weather_markets(
                         token_id=token_id,
                         city=city,
                         date=target_date,
-                        temp_f=temp_f,
+                        temp_value=temp_value,
+                        temp_unit=temp_unit,
                         market_price=price,
                         implied_prob=price,
                         volume_24h=volume_24h,

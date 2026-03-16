@@ -118,10 +118,12 @@ class TestScanWeatherMarkets:
         result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=False)
 
         assert len(result) == 2
-        assert result[0].temp_f == 70
+        assert result[0].temp_value == 70
+        assert result[0].temp_unit == "F"
         assert result[0].market_price == 0.3
         assert result[0].token_id == "token_70"
-        assert result[1].temp_f == 75
+        assert result[1].temp_value == 75
+        assert result[1].temp_unit == "F"
         assert result[1].market_price == 0.4
         assert result[1].token_id == "token_75"
 
@@ -139,7 +141,8 @@ class TestScanWeatherMarkets:
         result = await scan_weather_markets(client, "NYC", TARGET_DATE, include_weekly=False, include_monthly=False)
 
         assert len(result) == 1
-        assert result[0].temp_f == 80
+        assert result[0].temp_value == 80
+        assert result[0].temp_unit == "F"
 
     @pytest.mark.asyncio
     async def test_multiple_tokens_one_market(self):
@@ -156,7 +159,8 @@ class TestScanWeatherMarkets:
 
         # Should extract 70 from the question
         assert len(result) == 1
-        assert result[0].temp_f in [70, 75]
+        assert result[0].temp_value in [70, 75]
+        assert result[0].temp_unit == "F"
 
     @pytest.mark.asyncio
     async def test_liquidity_filter_low_volume(self):
@@ -260,5 +264,48 @@ class TestScanWeatherMarkets:
         assert len(result) >= 1
         monthly_contracts = [r for r in result if r.contract_type == "monthly"]
         assert len(monthly_contracts) >= 1  # Could match either number
+
+    @pytest.mark.asyncio
+    async def test_celsius_temperature_conversion(self):
+        """Test that Celsius temperatures are correctly converted to Fahrenheit."""
+        # International cities use Celsius on Polymarket
+        event_shanghai = _event("Highest temperature in Shanghai in March?", [
+            _market("Will the highest temperature in Shanghai be 12°C?",
+                   [_outcome("Yes", 0.3), _outcome("No", 0.7)],
+                   ["token_12c"]),
+        ])
+        event_shanghai["markets"][0]["volume24h"] = 10000
+
+        client = AsyncMock()
+        # Only match monthly contract slug
+        client.get_event_by_slug.side_effect = lambda slug: event_shanghai if slug == "highest-temperature-in-shanghai-in-march-2026" else None
+
+        # 12°C = 53.6°F → should round to 54°F
+        result = await scan_weather_markets(client, "Shanghai", date(2026, 3, 15), include_weekly=False, include_monthly=True)
+
+        assert len(result) == 1
+        assert result[0].temp_value == 12  # Market shows 12°C
+        assert result[0].temp_unit == "C"
+
+    @pytest.mark.asyncio
+    async def test_celsius_format_with_space(self):
+        """Test Celsius detection with space format (e.g., '25 C')."""
+        event = _event("Highest temperature in Seoul in March?", [
+            _market("Will the highest temperature in Seoul be 11 C?",
+                   [_outcome("Yes", 0.4), _outcome("No", 0.6)],
+                   ["token_11c"]),
+        ])
+        event["markets"][0]["volume24h"] = 10000
+
+        client = AsyncMock()
+        # Only match monthly contract slug
+        client.get_event_by_slug.side_effect = lambda slug: event if slug == "highest-temperature-in-seoul-in-march-2026" else None
+
+        # 11°C = 51.8°F → should round to 52°F
+        result = await scan_weather_markets(client, "Seoul", date(2026, 3, 15), include_weekly=False, include_monthly=True)
+
+        assert len(result) == 1
+        assert result[0].temp_value == 11  # Market shows 11°C
+        assert result[0].temp_unit == "C"
 
 

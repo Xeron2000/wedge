@@ -204,7 +204,7 @@ async def _process_city(
             run_id=run_id,
             city=city_cfg.name,
             date=target_date.isoformat(),
-            temp_f=temp_f,
+            temp_f=temp_f,  # Forecast always uses °F
             p_model=prob,
             created_at=datetime.now(UTC).isoformat(),
         )
@@ -262,12 +262,12 @@ async def _process_city(
     orders = 0
     for pos in ladder_positions + tail_positions:
         # Skip if already have an open position for this market
-        if await db.has_open_position(pos.bucket.city, pos.bucket.date.isoformat(), pos.bucket.temp_f):
+        if await db.has_open_position(pos.bucket.city, pos.bucket.date.isoformat(), pos.bucket.temp_value):
             log.info(
                 "position_exists_skipping",
                 city=pos.bucket.city,
                 date=str(pos.bucket.date),
-                temp_f=pos.bucket.temp_f,
+                temp_value=pos.bucket.temp_value,
             )
             continue
 
@@ -276,7 +276,8 @@ async def _process_city(
             token_id=pos.bucket.token_id,
             city=pos.bucket.city,
             date=pos.bucket.date,
-            temp_f=pos.bucket.temp_f,
+            temp_value=pos.bucket.temp_value,
+            temp_unit=pos.bucket.temp_unit,
             strategy=pos.strategy,
             limit_price=pos.entry_price,
             size=pos.size,
@@ -311,7 +312,8 @@ def _generate_synthetic_markets(
                 token_id=f"syn_{city}_{target_date}_{temp_f}",
                 city=city,
                 date=target_date,
-                temp_f=temp_f,
+                temp_value=temp_f,
+                temp_unit="F",  # Synthetic markets always use °F
                 market_price=round(market_price, 2),
                 implied_prob=round(market_price, 2),
             )

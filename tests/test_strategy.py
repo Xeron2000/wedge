@@ -12,7 +12,8 @@ def _signal(temp_f: int, edge: float, odds: float, p_market: float = 0.10) -> Ed
     return EdgeSignal(
         city="NYC",
         date=date(2026, 7, 1),
-        temp_f=temp_f,
+        temp_value=temp_f,
+        temp_unit="F",
         token_id=f"tok_{temp_f}",
         p_model=p_market + edge,
         p_market=p_market,
@@ -29,7 +30,7 @@ class TestLadder:
         ]
         positions = evaluate_ladder(signals, budget=700, edge_threshold=0.05)
         assert len(positions) == 1
-        assert positions[0].bucket.temp_f == 78
+        assert positions[0].bucket.temp_value == 78
 
     def test_empty_signals(self):
         positions = evaluate_ladder([], budget=700)
@@ -56,7 +57,7 @@ class TestTail:
         ]
         positions = evaluate_tail(signals, budget=200, edge_threshold=0.08, min_odds=10)
         assert len(positions) == 1
-        assert positions[0].bucket.temp_f == 95
+        assert positions[0].bucket.temp_value == 95
 
     def test_empty_signals(self):
         positions = evaluate_tail([], budget=200)

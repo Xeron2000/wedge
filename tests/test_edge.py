@@ -22,12 +22,13 @@ def _forecast(buckets: dict[int, float]) -> ForecastDistribution:
     )
 
 
-def _market(temp_f: int, price: float, volume_24h: float = 5000.0) -> MarketBucket:
+def _market(temp_value: int, price: float, volume_24h: float = 5000.0) -> MarketBucket:
     return MarketBucket(
-        token_id=f"tok_{temp_f}",
+        token_id=f"tok_{temp_value}",
         city="NYC",
         date=date(2026, 7, 1),
-        temp_f=temp_f,
+        temp_value=temp_value,
+        temp_unit="F",
         market_price=price,
         implied_prob=price,
         volume_24h=volume_24h,

@@ -59,7 +59,7 @@ class LiveExecutor:
             run_id=request.run_id,
             city=request.city,
             date=request.date.isoformat(),
-            temp_f=request.temp_f,
+            temp_f=request.temp_value,
             strategy=request.strategy,
             entry_price=request.limit_price,
             size=request.size,
@@ -71,7 +71,7 @@ class LiveExecutor:
             created_at=now,
         )
         if not inserted:
-            log.info("live_duplicate_skipped", run_id=request.run_id, temp_f=request.temp_f)
+            log.info("live_duplicate_skipped", run_id=request.run_id, temp_value=request.temp_value)
             return OrderResult(success=True, error="duplicate")
 
         # Try maker order first
@@ -83,7 +83,7 @@ class LiveExecutor:
                 "live_maker_order_filled",
                 order_id=result.order_id,
                 city=request.city,
-                temp_f=request.temp_f,
+                temp_value=request.temp_value,
                 filled_price=result.filled_price,
             )
             return result
@@ -92,7 +92,7 @@ class LiveExecutor:
         log.info(
             "live_maker_timeout_falling_back_to_taker",
             run_id=request.run_id,
-            temp_f=request.temp_f,
+            temp_value=request.temp_value,
         )
         result = await self._try_taker_order(request)
 
@@ -102,7 +102,7 @@ class LiveExecutor:
                 "live_taker_order_filled",
                 order_id=result.order_id,
                 city=request.city,
-                temp_f=request.temp_f,
+                temp_value=request.temp_value,
             )
             return result
 

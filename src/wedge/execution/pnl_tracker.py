@@ -71,7 +71,8 @@ class PnLTracker:
         token_id: str,
         city: str,
         target_date: str,
-        temp_f: int,
+        temp_value: int,
+        temp_unit: str,
         strategy: str,
         entry_price: float,
         size: float,
@@ -82,7 +83,8 @@ class PnLTracker:
             token_id: Polymarket token ID
             city: City name
             target_date: Target date (ISO format)
-            temp_f: Temperature in °F
+            temp_value: Temperature value (same unit as market)
+            temp_unit: "F" or "C"
             strategy: "ladder" or "tail"
             entry_price: Entry price (0-1)
             size: USD amount invested
@@ -96,7 +98,8 @@ class PnLTracker:
             token_id=token_id,
             city=city,
             target_date=date.fromisoformat(target_date) if isinstance(target_date, str) else target_date,
-            temp_f=temp_f,
+            temp_value=temp_value,
+            temp_unit=temp_unit,
             strategy=strategy,
             entry_price=entry_price,
             entry_size=size,
@@ -215,7 +218,8 @@ class PnLTracker:
                 "token_id": pos.token_id,
                 "city": pos.city,
                 "target_date": str(pos.target_date),
-                "temp_f": pos.temp_f,
+                "temp_value": pos.temp_value,
+                "temp_unit": pos.temp_unit,
                 "strategy": pos.strategy,
                 "entry_price": pos.entry_price,
                 "current_price": pos.current_price,

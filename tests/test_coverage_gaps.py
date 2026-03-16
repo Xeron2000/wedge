@@ -89,7 +89,7 @@ class TestValidateOrderEdgeCases:
     def test_negative_size(self):
         req = OrderRequest(
             run_id="r1", token_id="t1", city="NYC",
-            date=date(2026, 7, 1), temp_f=78, strategy="ladder",
+            date=date(2026, 7, 1), temp_value=78, temp_unit="F", strategy="ladder",
             limit_price=0.20, size=-5.0,
         )
         error = validate_order(req, balance=1000, max_bet=100)
@@ -98,7 +98,7 @@ class TestValidateOrderEdgeCases:
     def test_zero_size(self):
         req = OrderRequest(
             run_id="r1", token_id="t1", city="NYC",
-            date=date(2026, 7, 1), temp_f=78, strategy="ladder",
+            date=date(2026, 7, 1), temp_value=78, temp_unit="F", strategy="ladder",
             limit_price=0.20, size=0,
         )
         error = validate_order(req, balance=1000, max_bet=100)
@@ -107,7 +107,7 @@ class TestValidateOrderEdgeCases:
     def test_limit_price_zero(self):
         req = OrderRequest(
             run_id="r1", token_id="t1", city="NYC",
-            date=date(2026, 7, 1), temp_f=78, strategy="ladder",
+            date=date(2026, 7, 1), temp_value=78, temp_unit="F", strategy="ladder",
             limit_price=0.0, size=10.0,
         )
         error = validate_order(req, balance=1000, max_bet=100)
@@ -116,7 +116,7 @@ class TestValidateOrderEdgeCases:
     def test_limit_price_one(self):
         req = OrderRequest(
             run_id="r1", token_id="t1", city="NYC",
-            date=date(2026, 7, 1), temp_f=78, strategy="ladder",
+            date=date(2026, 7, 1), temp_value=78, temp_unit="F", strategy="ladder",
             limit_price=1.0, size=10.0,
         )
         error = validate_order(req, balance=1000, max_bet=100)
@@ -125,7 +125,7 @@ class TestValidateOrderEdgeCases:
     def test_limit_price_negative(self):
         req = OrderRequest(
             run_id="r1", token_id="t1", city="NYC",
-            date=date(2026, 7, 1), temp_f=78, strategy="ladder",
+            date=date(2026, 7, 1), temp_value=78, temp_unit="F", strategy="ladder",
             limit_price=-0.5, size=10.0,
         )
         error = validate_order(req, balance=1000, max_bet=100)
@@ -166,7 +166,7 @@ class TestKellyDefensiveGuards:
 
 def _signal(temp_f, edge, odds, p_market=0.10):
     return EdgeSignal(
-        city="NYC", date=date(2026, 7, 1), temp_f=temp_f,
+        city="NYC", date=date(2026, 7, 1), temp_value=temp_f, temp_unit="F",
         token_id=f"tok_{temp_f}", p_model=p_market + edge,
         p_market=p_market, edge=edge, odds=odds,
     )

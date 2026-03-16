@@ -10,7 +10,8 @@ class MarketBucket(BaseModel):
     token_id: str
     city: str
     date: date
-    temp_f: int
+    temp_value: int  # Temperature value as shown on Polymarket
+    temp_unit: str  # "F" or "C" - same unit as Polymarket market
     market_price: float  # 0-1
     implied_prob: float  # = market_price
     volume_24h: float = 5000.0  # 24h trading volume in USD

@@ -94,8 +94,8 @@ class TestFormatPipelineSummary:
 
     def test_with_signals(self):
         signals = [
-            {"city": "NYC", "temp_f": 85, "edge": 0.12, "size": 20.0},
-            {"city": "LA", "temp_f": 72, "edge": 0.08, "size": 15.0},
+            {"city": "NYC", "temp_value": 85, "temp_unit": "F", "edge": 0.12, "size": 20.0},
+            {"city": "LA", "temp_value": 72, "temp_unit": "F", "edge": 0.08, "size": 15.0},
         ]
         text = format_pipeline_summary(
             mode="live",
@@ -111,7 +111,7 @@ class TestFormatPipelineSummary:
 
     def test_signals_capped_at_five(self):
         signals = [
-            {"city": f"C{i}", "temp_f": 70 + i, "edge": 0.05 + i * 0.01, "size": 10.0}
+            {"city": f"C{i}", "temp_value": 70 + i, "temp_unit": "F", "edge": 0.05 + i * 0.01, "size": 10.0}
             for i in range(8)
         ]
         text = format_pipeline_summary(

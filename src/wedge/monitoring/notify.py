@@ -68,8 +68,9 @@ def format_pipeline_summary(
     if signals:
         lines.append("\nTop signals:")
         for s in signals[:5]:
+            unit = s.get('temp_unit', 'F')
             lines.append(
-                f"  {s['city']} {s['temp_f']}°F: edge {s['edge']:.1%}, ${s['size']:.2f}"
+                f"  {s['city']} {s['temp_value']}°{unit}: edge {s['edge']:.1%}, ${s['size']:.2f}"
             )
     return "\n".join(lines)
 
@@ -125,10 +126,11 @@ def format_positions(positions: list[dict]) -> str:
         date_invested = sum(p["size"] for p in date_positions)
         lines.append(f"\n{date} (${date_invested:.0f})")
 
-        for p in sorted(date_positions, key=lambda x: x["temp_f"]):
+        for p in sorted(date_positions, key=lambda x: x["temp_value"]):
             edge_pct = p["edge"] * 100
+            unit = p.get('temp_unit', 'F')
             lines.append(
-                f"  {p['city']} {p['temp_f']}°F: ${p['size']:.0f} @{p['entry_price']:.2f} ({edge_pct:.0f}% edge)"
+                f"  {p['city']} {p['temp_value']}°{unit}: ${p['size']:.0f} @{p['entry_price']:.2f} ({edge_pct:.0f}% edge)"
             )
 
     lines.append(f"\nTotal invested: ${total_invested:.2f}")

@@ -59,7 +59,8 @@ def market_bucket(forecast):
         token_id="syn_NYC_2026-03-20_72",
         city="NYC",
         date=date(2026, 3, 20),
-        temp_f=72,
+        temp_value=72,
+        temp_unit="F",
         market_price=0.20,
         implied_prob=0.20,
     )
@@ -70,7 +71,8 @@ def edge_signal(market_bucket):
     return EdgeSignal(
         city="NYC",
         date=date(2026, 3, 20),
-        temp_f=72,
+        temp_value=72,
+        temp_unit="F",
         token_id=market_bucket.token_id,
         p_model=0.30,
         p_market=0.20,

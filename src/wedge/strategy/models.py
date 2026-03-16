@@ -8,7 +8,8 @@ from pydantic import BaseModel
 class EdgeSignal(BaseModel):
     city: str
     date: date
-    temp_f: int
+    temp_value: int  # Temperature value from market (same unit as market)
+    temp_unit: str  # "F" or "C" - same unit as Polymarket market
     token_id: str
     p_model: float
     p_market: float

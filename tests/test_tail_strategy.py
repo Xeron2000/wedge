@@ -15,14 +15,15 @@ from wedge.strategy.tail import (
 )
 
 
-def _signal(city: str, temp_f: int, p_model: float, market_price: float,
+def _signal(city: str, temp_value: int, p_model: float, market_price: float,
               date_offset: int = 0) -> EdgeSignal:
     """Create an edge signal."""
     return EdgeSignal(
         city=city,
         date=date(2026, 7, 1 + date_offset),
-        temp_f=temp_f,
-        token_id=f"tok_{city}_{temp_f}",
+        temp_value=temp_value,
+        temp_unit="F",
+        token_id=f"tok_{city}_{temp_value}",
         p_model=p_model,
         p_market=market_price,
         edge=p_model - market_price,
@@ -37,7 +38,8 @@ def _position(signal: EdgeSignal, size: float = 50.0) -> Position:
             token_id=signal.token_id,
             city=signal.city,
             date=signal.date,
-            temp_f=signal.temp_f,
+            temp_value=signal.temp_value,
+            temp_unit=signal.temp_unit,
             market_price=signal.p_market,
             implied_prob=signal.p_market,
         ),

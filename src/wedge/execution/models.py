@@ -12,7 +12,8 @@ class OrderRequest(BaseModel):
     token_id: str
     city: str
     date: date
-    temp_f: int
+    temp_value: int  # Temperature value (same unit as market)
+    temp_unit: str  # "F" or "C"
     strategy: Literal["ladder", "tail"]
     side: Literal["buy"] = "buy"
     limit_price: float
@@ -36,7 +37,8 @@ class PositionPnL:
     token_id: str
     city: str
     target_date: date
-    temp_f: int
+    temp_value: int  # Temperature value (same unit as market)
+    temp_unit: str  # "F" or "C"
     strategy: str
     entry_price: float
     entry_size: float  # USD invested

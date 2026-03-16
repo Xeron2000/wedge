@@ -112,7 +112,12 @@ def detect_edges(
             continue
 
         # Get raw model probability
-        p_raw = forecast.buckets.get(bucket.temp_f, 0.0)
+        # Convert market temp to Fahrenheit for lookup if needed
+        if bucket.temp_unit == "C":
+            lookup_temp = round(bucket.temp_value * 9 / 5 + 32)
+        else:
+            lookup_temp = bucket.temp_value
+        p_raw = forecast.buckets.get(lookup_temp, 0.0)
 
         # Apply calibration if date is provided
         if target_date is not None:
@@ -144,7 +149,8 @@ def detect_edges(
             EdgeSignal(
                 city=bucket.city,
                 date=bucket.date,
-                temp_f=bucket.temp_f,
+                temp_value=bucket.temp_value,
+                temp_unit=bucket.temp_unit,
                 token_id=bucket.token_id,
                 p_model=p_model,
                 p_market=bucket.market_price,

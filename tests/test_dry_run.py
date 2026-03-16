@@ -23,13 +23,14 @@ async def executor(db):
     return DryRunExecutor(db, initial_balance=1000, max_bet=100)
 
 
-def _order(run_id="test_run_1", temp_f=78, size=10.0) -> OrderRequest:
+def _order(run_id="test_run_1", temp_value=78, size=10.0) -> OrderRequest:
     return OrderRequest(
         run_id=run_id,
         token_id="tok_78",
         city="NYC",
         date=date(2026, 7, 1),
-        temp_f=temp_f,
+        temp_value=temp_value,
+        temp_unit="F",
         strategy="ladder",
         limit_price=0.20,
         size=size,

@@ -172,8 +172,8 @@ class TestBrierScoreAfterSettlement:
         brier = await db.get_brier_score(days=30)
         assert brier is not None
         assert brier > 0
-        # For temp_f=78, p_model=0.25: (0.25 - 0)^2 = 0.0625
-        # For temp_f=79, p_model=0.40: (0.40 - 1)^2 = 0.36
+        # For temp_value=78, temp_unit="F", p_model=0.25: (0.25 - 0)^2 = 0.0625
+        # For temp_value=79, temp_unit="F", p_model=0.40: (0.40 - 1)^2 = 0.36
         # avg = (0.0625 + 0.36) / 2 = 0.21125
         assert abs(brier - 0.21125) < 1e-4
 

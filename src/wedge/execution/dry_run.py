@@ -36,7 +36,7 @@ class DryRunExecutor:
             run_id=request.run_id,
             city=request.city,
             date=request.date.isoformat(),
-            temp_f=request.temp_f,
+            temp_f=request.temp_value,
             strategy=request.strategy,
             entry_price=request.limit_price,
             size=request.size,
@@ -49,7 +49,7 @@ class DryRunExecutor:
         )
 
         if not inserted:
-            log.info("dry_run_duplicate_skipped", run_id=request.run_id, temp_f=request.temp_f)
+            log.info("dry_run_duplicate_skipped", run_id=request.run_id, temp_value=request.temp_value)
             return OrderResult(success=True, order_id=order_id, error="duplicate")
 
         self._balance -= request.size
@@ -61,7 +61,8 @@ class DryRunExecutor:
                     token_id=request.token_id,
                     city=request.city,
                     date=request.date,
-                    temp_f=request.temp_f,
+                    temp_value=request.temp_value,
+                    temp_unit=request.temp_unit,
                     market_price=request.limit_price,
                     implied_prob=request.limit_price,
                 ),
@@ -75,7 +76,7 @@ class DryRunExecutor:
             "dry_run_order_placed",
             order_id=order_id,
             city=request.city,
-            temp_f=request.temp_f,
+            temp_value=request.temp_value,
             size=f"${request.size:.2f}",
             price=request.limit_price,
         )
@@ -107,11 +108,11 @@ class DryRunExecutor:
             await self._load_positions_from_db()
 
         market_map = {
-            (m.city, m.date, m.temp_f): m.market_price for m in markets
+            (m.city, m.date, m.temp_value): m.market_price for m in markets
         }
 
         for pos in self._positions:
-            key = (pos.bucket.city, pos.bucket.date, pos.bucket.temp_f)
+            key = (pos.bucket.city, pos.bucket.date, pos.bucket.temp_value)
             if key in market_map:
                 current_price = market_map[key]
                 pos.bucket.market_price = current_price
@@ -152,7 +153,8 @@ class DryRunExecutor:
                         token_id=pos_dict.get("token_id", ""),
                         city=pos_dict["city"],
                         date=date_obj,
-                        temp_f=pos_dict["temp_f"],
+                        temp_value=pos_dict["temp_f"],
+                        temp_unit="F",  # Default to F for stored positions
                         market_price=pos_dict["entry_price"],  # Will be updated by update_position_prices
                         implied_prob=pos_dict["entry_price"],
                     ),
