@@ -9,7 +9,7 @@ from wedge.market.polymarket import PolymarketClient
 
 log = get_logger("market.scanner")
 
-_TEMP_PATTERN = re.compile(r"(\d+)\s*°?\s*F", re.IGNORECASE)
+_TEMP_PATTERN = re.compile(r"(\d+)\s*°?\s*[CF]", re.IGNORECASE)
 _DATE_PATTERN = re.compile(
     r"(january|february|march|april|may|june|july|august|september|"
     r"october|november|december)\s+(\d{1,2})",
@@ -38,6 +38,7 @@ _CITY_TO_SLUG = {
     "Dallas": "dallas",
     "Seattle": "seattle",
     "Atlanta": "atlanta",
+    "Seoul": "seoul",
 }
 
 
@@ -81,47 +82,109 @@ async def scan_weather_markets(
             question = market.get("question", "").lower()
 
             # Extract temperature from question
-            # Format: "Will the highest temperature in {City} be {temp}°F..."
+            # Support both Fahrenheit (°F) and Celsius (°C)
             temp_match = _TEMP_PATTERN.search(question)
             if not temp_match:
                 continue
 
             try:
-                temp_f = int(temp_match.group(1))
+                temp_value = int(temp_match.group(1))
             except (ValueError, IndexError):
                 log.warning("invalid_temp_format", question=question)
                 continue
 
-            # Get outcomes (Yes/No tokens)
-            outcomes = market.get("outcomes", [])
+            # Detect temperature unit and convert to Fahrenheit if needed
+            if "°c" in question or " c " in question or question.endswith(" c"):
+                # Convert Celsius to Fahrenheit
+                temp_f = int(temp_value * 9 / 5 + 32)
+            else:
+                temp_f = temp_value
+
+            # Parse outcomes - handle both list and JSON string formats
+            outcomes_raw = market.get("outcomes", [])
+            if isinstance(outcomes_raw, str):
+                # Parse JSON string format: "[\"Yes\", \"No\"]"
+                import json
+                try:
+                    outcomes = json.loads(outcomes_raw)
+                except json.JSONDecodeError:
+                    log.warning("invalid_outcomes_json", outcomes=outcomes_raw)
+                    continue
+            else:
+                outcomes = outcomes_raw
+
             if not isinstance(outcomes, list) or len(outcomes) < 2:
                 continue
 
+            # Parse outcome prices - handle both formats
+            prices_raw = market.get("outcomePrices")
+            if prices_raw:
+                # New format: separate outcomePrices field
+                if isinstance(prices_raw, str):
+                    import json
+                    try:
+                        prices = json.loads(prices_raw)
+                    except json.JSONDecodeError:
+                        log.warning("invalid_prices_json", prices=prices_raw)
+                        continue
+                else:
+                    prices = prices_raw
+            else:
+                # Old format: prices embedded in outcomes
+                prices = None
+
             # Find "Yes" outcome and its index
             yes_index = None
-            yes_outcome = None
             for idx, outcome in enumerate(outcomes):
-                if not isinstance(outcome, dict):
+                if isinstance(outcome, str):
+                    # New format: outcomes is list of strings
+                    if outcome.lower() == "yes":
+                        yes_index = idx
+                        break
+                elif isinstance(outcome, dict):
+                    # Old format: outcomes is list of dicts
+                    if outcome.get("outcome", "").lower() == "yes":
+                        yes_index = idx
+                        break
+
+            if yes_index is None:
+                continue
+
+            # Get price for Yes outcome
+            if prices:
+                # New format: separate prices array
+                if yes_index >= len(prices):
                     continue
-                if outcome.get("outcome", "").lower() == "yes":
-                    yes_index = idx
-                    yes_outcome = outcome
-                    break
-
-            if not yes_outcome or yes_index is None:
-                continue
-
-            try:
-                price = float(yes_outcome.get("price", 0))
-            except (ValueError, TypeError):
-                log.warning("invalid_price_format", market=question, price=yes_outcome.get("price"))
-                continue
+                try:
+                    price = float(prices[yes_index])
+                except (ValueError, TypeError):
+                    log.warning("invalid_price_value", price=prices[yes_index])
+                    continue
+            else:
+                # Old format: price in outcome dict
+                yes_outcome = outcomes[yes_index]
+                if not isinstance(yes_outcome, dict):
+                    continue
+                try:
+                    price = float(yes_outcome.get("price", 0))
+                except (ValueError, TypeError):
+                    log.warning("invalid_price_format", price=yes_outcome.get("price"))
+                    continue
 
             if not (0 < price < 1):
                 continue
 
             # Get token_id corresponding to Yes outcome using the same index
-            clob_token_ids = market.get("clobTokenIds", [])
+            clob_token_ids_raw = market.get("clobTokenIds", [])
+            if isinstance(clob_token_ids_raw, str):
+                # Parse JSON string format
+                import json
+                try:
+                    clob_token_ids = json.loads(clob_token_ids_raw)
+                except json.JSONDecodeError:
+                    clob_token_ids = []
+            else:
+                clob_token_ids = clob_token_ids_raw
             if not clob_token_ids or yes_index >= len(clob_token_ids):
                 token_id = ""
             else:

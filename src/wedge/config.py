@@ -61,6 +61,7 @@ DEFAULT_CITIES = [
     CityConfig(name="Dallas", lat=32.8471, lon=-96.8518, timezone="America/Chicago", station="KDAL"),
     CityConfig(name="Seattle", lat=47.4502, lon=-122.3088, timezone="America/Los_Angeles", station="KSEA"),
     CityConfig(name="Atlanta", lat=33.6407, lon=-84.4277, timezone="America/New_York", station="KATL"),
+    CityConfig(name="Seoul", lat=37.4602, lon=126.4407, timezone="Asia/Seoul", station="RKSI"),
 ]
 
 
