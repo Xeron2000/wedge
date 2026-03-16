@@ -79,31 +79,35 @@ async def run_pipeline(
     async with httpx.AsyncClient() as http_client:
         for city_cfg in settings.cities:
             try:
-                # Compute target date per city timezone (contract settlement is local)
+                # Compute target dates per city timezone (contract settlement is local)
+                # Polymarket has markets for today, tomorrow, and day after (0-2 days)
                 city_tz = ZoneInfo(city_cfg.timezone)
                 local_today = datetime.now(city_tz).date()
-                target_date = local_today + timedelta(days=3)
 
-                orders = await _process_city(
-                    http_client=http_client,
-                    settings=settings,
-                    db=db,
-                    executor=executor,
-                    city_cfg=city_cfg,
-                    target_date=target_date,
-                    run_id=run_id,
-                    ladder_budget=ladder_budget,
-                    tail_budget=tail_budget,
-                    poly_client=poly_client,
-                )
-                total_orders += orders
+                # Scan markets for next 3 days (today, tomorrow, day after)
+                for days_ahead in range(3):
+                    target_date = local_today + timedelta(days=days_ahead)
 
-                # Update position prices for dry-run mode
-                if settings.mode == "dry_run" and poly_client:
-                    markets = await scan_weather_markets(
-                        poly_client, city_cfg.name, target_date
+                    orders = await _process_city(
+                        http_client=http_client,
+                        settings=settings,
+                        db=db,
+                        executor=executor,
+                        city_cfg=city_cfg,
+                        target_date=target_date,
+                        run_id=run_id,
+                        ladder_budget=ladder_budget,
+                        tail_budget=tail_budget,
+                        poly_client=poly_client,
                     )
-                    await executor.update_position_prices(markets)
+                    total_orders += orders
+
+                    # Update position prices for dry-run mode
+                    if settings.mode == "dry_run" and poly_client:
+                        markets = await scan_weather_markets(
+                            poly_client, city_cfg.name, target_date
+                        )
+                        await executor.update_position_prices(markets)
 
             except Exception as e:
                 log.error("city_failed", city=city_cfg.name, error=str(e))

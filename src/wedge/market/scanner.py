@@ -30,55 +30,89 @@ _CITY_ALIASES = {
     "atlanta": "Atlanta",
 }
 
+# Map city names to Polymarket slug format
+_CITY_TO_SLUG = {
+    "NYC": "new-york-city",
+    "Chicago": "chicago",
+    "Miami": "miami",
+    "Dallas": "dallas",
+    "Seattle": "seattle",
+    "Atlanta": "atlanta",
+}
+
 
 async def scan_weather_markets(
     client: PolymarketClient, city: str, target_date: date
 ) -> list[MarketBucket]:
-    """Scan Polymarket for weather temperature contracts matching city and date."""
-    markets = await client.get_markets()
+    """Scan Polymarket for weather temperature contracts matching city and date.
+
+    Uses slug-based queries to fetch specific weather events from Gamma API.
+    """
+    # Build slug for the specific city and date
+    # Format: highest-temperature-in-{city}-on-{month}-{day}-{year}
+    city_slug = _CITY_TO_SLUG.get(city)
+    if not city_slug:
+        log.warning("unsupported_city", city=city)
+        return []
+
+    month_name = target_date.strftime("%B").lower()  # e.g., "march"
+    day = target_date.day
+    year = target_date.year
+
+    slug = f"highest-temperature-in-{city_slug}-on-{month_name}-{day}-{year}"
+
+    # Try to fetch the event by slug
+    if hasattr(client, 'get_event_by_slug'):
+        event = await client.get_event_by_slug(slug)
+    else:
+        # Fallback for authenticated client
+        log.warning("client_missing_get_event_by_slug", city=city)
+        return []
+
+    if not event:
+        log.info("scan_complete", city=city, date=str(target_date), buckets_found=0)
+        return []
+
     buckets: list[MarketBucket] = []
 
-    for market in markets:
+    # Parse markets from the event
+    for market in event.get("markets", []):
         question = market.get("question", "").lower()
-        if "temperature" not in question and "high" not in question:
+
+        # Extract temperature from question
+        # Format: "Will the highest temperature in {City} be {temp}°F..."
+        temp_match = _TEMP_PATTERN.search(question)
+        if not temp_match:
             continue
 
-        matched_city = None
-        for alias, canonical in _CITY_ALIASES.items():
-            if alias in question:
-                matched_city = canonical
-                break
+        temp_f = int(temp_match.group(1))
 
-        if matched_city != city:
+        # Get outcomes (Yes/No tokens)
+        outcomes = market.get("outcomes", [])
+        if len(outcomes) < 2:
             continue
 
-        # Validate date from question text or structured field
-        market_date = _extract_market_date(market, target_date.year)
-        if market_date and market_date != target_date:
+        # Find "Yes" outcome price
+        yes_outcome = next((o for o in outcomes if o.get("outcome", "").lower() == "yes"), None)
+        if not yes_outcome:
             continue
 
-        for token in market.get("tokens", []):
-            outcome = token.get("outcome", "")
-            temp_match = _TEMP_PATTERN.search(outcome)
-            if not temp_match:
-                continue
+        price = float(yes_outcome.get("price", 0))
+        if not (0 < price < 1):
+            continue
 
-            temp_f = int(temp_match.group(1))
-            price = float(token.get("price", 0))
+        token_id = market.get("clobTokenIds", [""])[0] if market.get("clobTokenIds") else ""
 
-            if not (0 < price < 1):
-                continue
-
-            buckets.append(
-                MarketBucket(
-                    token_id=token.get("token_id", ""),
-                    city=city,
-                    date=target_date,
-                    temp_f=temp_f,
-                    market_price=price,
-                    implied_prob=price,
-                )
+        buckets.append(
+            MarketBucket(
+                token_id=token_id,
+                city=city,
+                date=target_date,
+                temp_f=temp_f,
+                market_price=price,
+                implied_prob=price,
             )
+        )
 
     log.info("scan_complete", city=city, date=str(target_date), buckets_found=len(buckets))
     return buckets

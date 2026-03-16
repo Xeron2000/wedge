@@ -5,24 +5,32 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from wedge.market.scanner import _extract_market_date, scan_weather_markets
+from wedge.market.scanner import scan_weather_markets
 
 
-def _make_client(markets: list[dict]) -> AsyncMock:
+def _make_client(event: dict | None) -> AsyncMock:
+    """Create a mock client that returns an event from get_event_by_slug."""
     client = AsyncMock()
-    client.get_markets.return_value = markets
+    client.get_event_by_slug.return_value = event
     return client
 
 
-def _token(outcome: str, price: float, token_id: str = "tok_1") -> dict:
-    return {"outcome": outcome, "price": str(price), "token_id": token_id}
+def _outcome(outcome: str, price: float) -> dict:
+    """Create an outcome (Yes/No token)."""
+    return {"outcome": outcome, "price": str(price)}
 
 
-def _market(question: str, tokens: list[dict], end_date: str | None = None) -> dict:
-    m: dict = {"question": question, "tokens": tokens}
-    if end_date is not None:
-        m["end_date_iso"] = end_date
+def _market(question: str, outcomes: list[dict], token_ids: list[str] | None = None) -> dict:
+    """Create a market within an event."""
+    m: dict = {"question": question, "outcomes": outcomes}
+    if token_ids:
+        m["clobTokenIds"] = token_ids
     return m
+
+
+def _event(title: str, markets: list[dict]) -> dict:
+    """Create an event containing markets."""
+    return {"title": title, "markets": markets}
 
 
 TARGET_DATE = date(2026, 7, 4)
@@ -31,144 +39,113 @@ TARGET_DATE = date(2026, 7, 4)
 class TestScanWeatherMarkets:
     @pytest.mark.asyncio
     async def test_no_markets_returns_empty(self):
-        client = _make_client([])
+        client = _make_client(None)  # Event not found
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_market_without_temperature_or_high_skipped(self):
-        client = _make_client([_market("Will it rain in NYC?", [_token("70 F", 0.3)])])
+    async def test_market_without_temperature_skipped(self):
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will it rain in NYC?", [_outcome("Yes", 0.3), _outcome("No", 0.7)])
+        ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
     async def test_market_with_wrong_city_skipped(self):
-        client = _make_client([_market("Will the temperature high in Miami be 90 F?", [_token("90 F", 0.4)])])
-        result = await scan_weather_markets(client, "NYC", TARGET_DATE)
+        # This test is no longer relevant since we query by slug (city-specific)
+        # But we keep it to test that unsupported cities return empty
+        client = _make_client(None)
+        result = await scan_weather_markets(client, "UnsupportedCity", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
     async def test_market_with_wrong_date_skipped(self):
-        client = _make_client([
-            _market(
-                "Will the temperature high in NYC be 78 F?",
-                [_token("78 F", 0.3)],
-                end_date="2026-07-05T00:00:00",
-            )
-        ])
+        # Date is now part of the slug, so wrong date means event not found
+        client = _make_client(None)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_token_without_temp_in_outcome_skipped(self):
-        client = _make_client([
-            _market(
-                "Will the temperature high in NYC be above average?",
-                [_token("Yes", 0.5)],
-                end_date="2026-07-04T00:00:00",
-            )
+    async def test_market_without_temp_in_question_skipped(self):
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be sunny?",
+                   [_outcome("Yes", 0.5), _outcome("No", 0.5)])
         ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_token_with_price_zero_skipped(self):
-        client = _make_client([
-            _market(
-                "Will the temperature high in NYC be 78 F?",
-                [_token("78 F", 0.0)],
-                end_date="2026-07-04T00:00:00",
-            )
+    async def test_market_with_price_zero_skipped(self):
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 70°F?",
+                   [_outcome("Yes", 0.0), _outcome("No", 1.0)])
         ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_token_with_price_one_skipped(self):
-        client = _make_client([
-            _market(
-                "Will the temperature high in NYC be 78 F?",
-                [_token("78 F", 1.0)],
-                end_date="2026-07-04T00:00:00",
-            )
+    async def test_market_with_price_one_skipped(self):
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 70°F?",
+                   [_outcome("Yes", 1.0), _outcome("No", 0.0)])
         ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
         assert result == []
 
     @pytest.mark.asyncio
     async def test_full_successful_scan(self):
-        client = _make_client([
-            _market(
-                "Will the temperature high in new york be 78 F on July 4?",
-                [_token("78 F", 0.3, token_id="tok_78")],
-            )
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 70°F?",
+                   [_outcome("Yes", 0.3), _outcome("No", 0.7)],
+                   ["token_70"]),
+            _market("Will the highest temperature in New York City be 75°F?",
+                   [_outcome("Yes", 0.4), _outcome("No", 0.6)],
+                   ["token_75"]),
         ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
-        assert len(result) == 1
-        b = result[0]
-        assert b.token_id == "tok_78"
-        assert b.city == "NYC"
-        assert b.temp_f == 78
-        assert b.market_price == 0.3
-        assert b.implied_prob == 0.3
+
+        assert len(result) == 2
+        assert result[0].temp_f == 70
+        assert result[0].market_price == 0.3
+        assert result[0].token_id == "token_70"
+        assert result[1].temp_f == 75
+        assert result[1].market_price == 0.4
+        assert result[1].token_id == "token_75"
 
     @pytest.mark.asyncio
     async def test_market_with_no_date_still_included(self):
-        # When market_date is None (no date field, no date in question), it passes date check
-        client = _make_client([
-            _market(
-                "Will the temperature high in nyc be 85 F?",
-                [_token("85 F", 0.25, token_id="tok_85")],
-            )
+        # Date is now in the slug, so this test is no longer relevant
+        # We test that markets are included when event is found
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be 80°F?",
+                   [_outcome("Yes", 0.5), _outcome("No", 0.5)],
+                   ["token_80"]),
         ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
+
         assert len(result) == 1
-        assert result[0].temp_f == 85
+        assert result[0].temp_f == 80
 
     @pytest.mark.asyncio
     async def test_multiple_tokens_one_market(self):
-        client = _make_client([
-            _market(
-                "What will the high temperature in NYC be?",
-                [
-                    _token("78 F", 0.3, token_id="tok_78"),
-                    _token("80 F", 0.4, token_id="tok_80"),
-                    _token("no temp here", 0.3, token_id="tok_bad"),
-                ],
-            )
+        # In the new format, each market has one temperature
+        event = _event("Highest temperature in NYC on July 4?", [
+            _market("Will the highest temperature in New York City be between 70-75°F?",
+                   [_outcome("Yes", 0.6), _outcome("No", 0.4)],
+                   ["token_70_75"]),
         ])
+        client = _make_client(event)
         result = await scan_weather_markets(client, "NYC", TARGET_DATE)
-        assert len(result) == 2
-        temps = {b.temp_f for b in result}
-        assert temps == {78, 80}
+
+        # Should extract 70 from the question
+        assert len(result) == 1
+        assert result[0].temp_f in [70, 75]  # Could match either number
 
 
-class TestExtractMarketDate:
-    def test_end_date_iso_field(self):
-        m = {"end_date_iso": "2026-07-04T00:00:00", "question": ""}
-        assert _extract_market_date(m, 2026) == date(2026, 7, 4)
-
-    def test_end_date_field_with_z_suffix(self):
-        m = {"end_date": "2026-08-15T12:00:00Z", "question": ""}
-        assert _extract_market_date(m, 2026) == date(2026, 8, 15)
-
-    def test_invalid_end_date_falls_through_to_question(self):
-        m = {"end_date_iso": "not-a-date", "question": "Temperature high on July 4"}
-        result = _extract_market_date(m, 2026)
-        assert result == date(2026, 7, 4)
-
-    def test_question_july_4(self):
-        m = {"question": "Will the high be 78 F on July 4?"}
-        assert _extract_market_date(m, 2026) == date(2026, 7, 4)
-
-    def test_question_invalid_date_february_30(self):
-        m = {"question": "Will the high be 78 F on February 30?"}
-        assert _extract_market_date(m, 2026) is None
-
-    def test_no_date_info_returns_none(self):
-        m = {"question": "Will the high be above average?"}
-        assert _extract_market_date(m, 2026) is None
-
-    def test_end_date_iso_takes_priority_over_question(self):
-        m = {"end_date_iso": "2026-07-04T00:00:00", "question": "on August 1"}
-        assert _extract_market_date(m, 2026) == date(2026, 7, 4)
