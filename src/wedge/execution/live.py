@@ -43,42 +43,53 @@ class LiveExecutor:
         self._max_bet = max_bet
         self._maker_timeout = maker_timeout
 
+        # Thread-safety for concurrent order execution
+        self._balance_lock = asyncio.Lock()
+
         # Track pending orders
         self._pending_orders: dict[str, OrderRequest] = {}
 
     async def place_order(self, request: OrderRequest) -> OrderResult:
-        """Place order using maker-taker strategy."""
-        error = validate_order(request, self._balance, self._max_bet)
-        if error:
-            log.warning("live_order_rejected", reason=error)
-            return OrderResult(success=False, error=error)
+        """Place order using maker-taker strategy.
 
-        # Idempotency: reserve DB slot BEFORE placing order
-        now = datetime.now(UTC).isoformat()
-        inserted = await self._db.insert_trade(
-            run_id=request.run_id,
-            city=request.city,
-            date=request.date.isoformat(),
-            temp_f=request.temp_value,
-            strategy=request.strategy,
-            entry_price=request.limit_price,
-            size=request.size,
-            p_model=request.p_model,
-            p_market=request.p_market,
-            edge=request.edge,
-            token_id=request.token_id,
-            order_id=None,
-            created_at=now,
-        )
-        if not inserted:
-            log.info("live_duplicate_skipped", run_id=request.run_id, temp_value=request.temp_value)
-            return OrderResult(success=True, error="duplicate")
+        Thread-safe: uses asyncio.Lock to protect balance checks and updates.
+        """
+        # Validate order with lock to prevent race conditions
+        async with self._balance_lock:
+            error = validate_order(request, self._balance, self._max_bet)
+            if error:
+                log.warning("live_order_rejected", reason=error)
+                return OrderResult(success=False, error=error)
 
-        # Try maker order first
+            # Idempotency: reserve DB slot BEFORE placing order
+            now = datetime.now(UTC).isoformat()
+            inserted = await self._db.insert_trade(
+                run_id=request.run_id,
+                city=request.city,
+                date=request.date.isoformat(),
+                temp_f=request.temp_value,
+                temp_unit=request.temp_unit,
+                strategy=request.strategy,
+                entry_price=request.limit_price,
+                size=request.size,
+                p_model=request.p_model,
+                p_market=request.p_market,
+                edge=request.edge,
+                token_id=request.token_id,
+                order_id=None,
+                created_at=now,
+            )
+            if not inserted:
+                log.info("live_duplicate_skipped", run_id=request.run_id, temp_value=request.temp_value)
+                return OrderResult(success=True, error="duplicate")
+
+            # Deduct balance immediately to prevent double-spending
+            self._balance -= request.size
+
+        # Try maker order first (outside lock to allow concurrent processing)
         result = await self._try_maker_order(request)
 
         if result and result.success:
-            self._balance -= request.size
             log.info(
                 "live_maker_order_filled",
                 order_id=result.order_id,
@@ -97,7 +108,6 @@ class LiveExecutor:
         result = await self._try_taker_order(request)
 
         if result and result.success:
-            self._balance -= request.size
             log.info(
                 "live_taker_order_filled",
                 order_id=result.order_id,
@@ -105,6 +115,10 @@ class LiveExecutor:
                 temp_value=request.temp_value,
             )
             return result
+
+        # Both failed - refund balance
+        async with self._balance_lock:
+            self._balance += request.size
 
         # Both failed
         log.error(

@@ -6,6 +6,10 @@ Multi-layer circuit breakers to prevent catastrophic losses:
 3. Maximum drawdown
 4. Consecutive losses
 5. Brier score degradation
+
+State Persistence:
+- Call to_dict() to serialize state for database storage
+- Call from_dict() to restore state after pipeline restart
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from wedge.log import get_logger
 
@@ -321,6 +325,75 @@ class CircuitBreaker:
         self._halt_reason = reason
         self._halted_at = datetime.now()
         log.error("circuit_breaker_triggered", reason=reason)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize circuit breaker state for database storage.
+
+        Returns:
+            Dictionary with all state fields for persistence.
+        """
+        return {
+            "initial_bankroll": self._initial_bankroll,
+            "peak_bankroll": self._peak_bankroll,
+            "current_bankroll": self._current_bankroll,
+            "daily_pnl": self._daily_pnl,
+            "last_reset_date": self._last_reset_date.isoformat() if self._last_reset_date else None,
+            "weekly_pnl": self._weekly_pnl,
+            "week_start": self._week_start.isoformat() if self._week_start else None,
+            "consecutive_losses": self._consecutive_losses,
+            "brier_predictions": self._brier_predictions,  # List of tuples, JSON-serializable
+            "halted": self._halted,
+            "halt_reason": self._halt_reason,
+            "halted_at": self._halted_at.isoformat() if self._halted_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], config: CircuitBreakerConfig | None = None) -> CircuitBreaker:
+        """Restore circuit breaker state from database.
+
+        Args:
+            data: Dictionary from to_dict() or database
+            config: Optional configuration override
+
+        Returns:
+            CircuitBreaker instance with restored state.
+        """
+        breaker = cls(config=config)
+
+        # Restore basic state
+        breaker._initial_bankroll = data.get("initial_bankroll", 0.0)
+        breaker._peak_bankroll = data.get("peak_bankroll", 0.0)
+        breaker._current_bankroll = data.get("current_bankroll", 0.0)
+        breaker._daily_pnl = data.get("daily_pnl", 0.0)
+        breaker._weekly_pnl = data.get("weekly_pnl", 0.0)
+        breaker._consecutive_losses = data.get("consecutive_losses", 0)
+
+        # Restore dates
+        if data.get("last_reset_date"):
+            breaker._last_reset_date = date.fromisoformat(data["last_reset_date"])
+        if data.get("week_start"):
+            breaker._week_start = date.fromisoformat(data["week_start"])
+        if data.get("halted_at"):
+            breaker._halted_at = datetime.fromisoformat(data["halted_at"])
+
+        # Restore halt state
+        breaker._halted = data.get("halted", False)
+        breaker._halt_reason = data.get("halt_reason", "")
+
+        # Restore Brier predictions
+        brier_preds = data.get("brier_predictions", [])
+        breaker._brier_predictions = [
+            (float(p), int(o)) for p, o in brier_preds
+        ]
+
+        log.info(
+            "circuit_breaker_restored",
+            bankroll=breaker._current_bankroll,
+            daily_pnl=breaker._daily_pnl,
+            halted=breaker._halted,
+        )
+
+        return breaker
 
 
 @dataclass

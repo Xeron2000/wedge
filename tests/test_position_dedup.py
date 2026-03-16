@@ -59,7 +59,7 @@ async def test_no_duplicate_positions_across_runs(db):
     positions = await db.get_open_positions()
     assert len(positions) == 1
     assert positions[0]["city"] == "NYC"
-    assert positions[0]["temp_f"] == 70
+    assert positions[0]["temp_value"] == 70
 
 
 @pytest.mark.asyncio

@@ -95,7 +95,7 @@ def fractional_kelly(
     # Money locked for N days has opportunity cost
     daily_funding = funding_rate / 365.0
     lockup_cost = daily_funding * capital_lockup_days
-    bet *= (1.0 - lockup_cost)  # Reduce bet by lockup cost
+    bet *= max(0.0, 1.0 - lockup_cost)  # Reduce bet by lockup cost, floor at 0
 
     # Apply hard caps
     cap = min(max_bet, bankroll * max_bet_pct)

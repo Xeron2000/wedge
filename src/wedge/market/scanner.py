@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime, timedelta
 
@@ -80,6 +81,32 @@ def _extract_open_interest(market: dict) -> float:
             except (ValueError, TypeError):
                 pass
     return 0.0
+
+
+def _parse_json_field(value: str | list | dict | None, field_name: str = "") -> list | dict | None:
+    """Parse a JSON field that may be string or already parsed.
+
+    Args:
+        value: Field value (may be JSON string or already parsed)
+        field_name: Field name for logging
+
+    Returns:
+        Parsed value (list or dict) or None if parsing fails
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, (list, dict)):
+        return value
+
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            log.warning("invalid_json_field", field=field_name, value=value[:100])
+            return None
+
+    return None
 
 
 async def scan_weather_markets(
@@ -187,34 +214,17 @@ async def scan_weather_markets(
                     )
                     continue
 
-                # Parse outcomes and prices
-                outcomes_raw = market.get("outcomes", [])
-                if isinstance(outcomes_raw, str):
-                    import json
-                    try:
-                        outcomes = json.loads(outcomes_raw)
-                    except json.JSONDecodeError:
-                        log.warning("invalid_outcomes_json", outcomes=outcomes_raw)
-                        continue
-                else:
-                    outcomes = outcomes_raw
+                # Parse outcomes and prices using unified JSON parser
+                outcomes = _parse_json_field(market.get("outcomes"), "outcomes")
+                if outcomes is None:
+                    outcomes = market.get("outcomes", [])
 
                 if not isinstance(outcomes, list) or len(outcomes) < 2:
                     continue
 
-                prices_raw = market.get("outcomePrices")
-                if prices_raw:
-                    if isinstance(prices_raw, str):
-                        import json
-                        try:
-                            prices = json.loads(prices_raw)
-                        except json.JSONDecodeError:
-                            log.warning("invalid_prices_json", prices=prices_raw)
-                            continue
-                    else:
-                        prices = prices_raw
-                else:
-                    prices = None
+                prices = _parse_json_field(market.get("outcomePrices"), "outcomePrices")
+                if prices is None:
+                    prices = market.get("outcomePrices")
 
                 # Find "Yes" outcome
                 yes_index = None
@@ -253,16 +263,10 @@ async def scan_weather_markets(
                 if not (0 < price < 1):
                     continue
 
-                # Get token_id
-                clob_token_ids_raw = market.get("clobTokenIds", [])
-                if isinstance(clob_token_ids_raw, str):
-                    import json
-                    try:
-                        clob_token_ids = json.loads(clob_token_ids_raw)
-                    except json.JSONDecodeError:
-                        clob_token_ids = []
-                else:
-                    clob_token_ids = clob_token_ids_raw
+                # Get token_id using unified JSON parser
+                clob_token_ids = _parse_json_field(market.get("clobTokenIds"), "clobTokenIds")
+                if clob_token_ids is None:
+                    clob_token_ids = market.get("clobTokenIds", [])
 
                 token_id = ""
                 if clob_token_ids and yes_index < len(clob_token_ids):

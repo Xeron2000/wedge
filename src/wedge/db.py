@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS trades (
     city TEXT NOT NULL,
     date TEXT NOT NULL,
     temp_f INTEGER NOT NULL,
+    temp_unit TEXT NOT NULL DEFAULT 'F',
     strategy TEXT NOT NULL,
     entry_price REAL NOT NULL,
     size REAL NOT NULL,
@@ -72,6 +73,14 @@ class Database:
         self._conn = await aiosqlite.connect(self._path)
         self._conn.row_factory = aiosqlite.Row
         await self._conn.executescript(_SCHEMA)
+        # Migration: add temp_unit column if not exists (for backward compatibility)
+        try:
+            await self._conn.execute(
+                "ALTER TABLE trades ADD COLUMN temp_unit TEXT NOT NULL DEFAULT 'F'"
+            )
+            await self._conn.commit()
+        except Exception:
+            pass  # Column already exists
 
     async def close(self) -> None:
         if self._conn:
@@ -105,6 +114,7 @@ class Database:
         city: str,
         date: str,
         temp_f: int,
+        temp_unit: str = 'F',
         strategy: str,
         entry_price: float,
         size: float,
@@ -119,10 +129,10 @@ class Database:
         try:
             await self.conn.execute(
                 """INSERT INTO trades
-                   (run_id, city, date, temp_f, strategy, entry_price, size,
+                   (run_id, city, date, temp_f, temp_unit, strategy, entry_price, size,
                     p_model, p_market, edge, token_id, order_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (run_id, city, date, temp_f, strategy, entry_price, size,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (run_id, city, date, temp_f, temp_unit, strategy, entry_price, size,
                  p_model, p_market, edge, token_id, order_id, created_at),
             )
             await self.conn.commit()
@@ -378,7 +388,7 @@ class Database:
     async def get_open_positions(self) -> list[dict]:
         """Get all unsettled positions."""
         cursor = await self.conn.execute(
-            """SELECT city, date, temp_f, temp_f AS temp_value, 'F' AS temp_unit,
+            """SELECT city, date, temp_f AS temp_value, temp_unit,
                       strategy, entry_price, size, p_model, edge, created_at
                FROM trades
                WHERE settled = 0

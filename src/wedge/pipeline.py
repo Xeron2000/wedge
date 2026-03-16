@@ -93,6 +93,9 @@ async def run_pipeline(
 
     total_orders = 0
 
+    cities_processed = 0
+    cities_failed = 0
+
     async with httpx.AsyncClient() as http_client:
         for city_cfg in settings.cities:
             try:
@@ -127,10 +130,20 @@ async def run_pipeline(
                         )
                         await executor.update_position_prices(markets)
 
+                cities_processed += 1
+
             except Exception as e:
                 log.error("city_failed", city=city_cfg.name, error=str(e))
+                cities_failed += 1
+                # Continue with next city instead of failing entire pipeline
 
-    status = "completed"
+    # Determine status based on success rate
+    if cities_failed == len(settings.cities):
+        status = "failed"  # All cities failed
+    elif cities_failed > 0:
+        status = "partial"  # Some cities failed
+    else:
+        status = "completed"  # All cities succeeded
     await db.complete_run(run_id, datetime.now(UTC).isoformat(), status)
 
     # Calculate unrealized P&L for dry-run mode
@@ -143,7 +156,10 @@ async def run_pipeline(
     )
     log.info(
         "pipeline_complete",
+        status=status,
         total_orders=total_orders,
+        cities_processed=cities_processed,
+        cities_failed=cities_failed,
         balance=await executor.get_balance(),
         unrealized_pnl=unrealized_pnl,
     )

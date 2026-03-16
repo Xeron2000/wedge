@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 
@@ -22,6 +23,7 @@ class DryRunExecutor:
         self._positions: list[Position] = []
         self._order_ids: set[str] = set()
         self._positions_loaded = False
+        self._load_lock = asyncio.Lock()  # Prevent concurrent position loading
 
     async def place_order(self, request: OrderRequest) -> OrderResult:
         error = validate_order(request, self._balance, self._max_bet)
@@ -37,6 +39,7 @@ class DryRunExecutor:
             city=request.city,
             date=request.date.isoformat(),
             temp_f=request.temp_value,
+            temp_unit=request.temp_unit,
             strategy=request.strategy,
             entry_price=request.limit_price,
             size=request.size,
@@ -137,33 +140,41 @@ class DryRunExecutor:
         return total_pnl
 
     async def _load_positions_from_db(self) -> None:
-        """Load open positions from database into memory."""
-        open_positions = await self._db.get_open_positions()
-        self._positions = []
+        """Load open positions from database into memory.
 
-        for pos_dict in open_positions:
-            from datetime import date as date_type
+        Thread-safe: uses asyncio.Lock to prevent concurrent loading.
+        """
+        async with self._load_lock:
+            # Double-check after acquiring lock (another coroutine may have loaded)
+            if self._positions_loaded:
+                return
 
-            # Parse date string to date object
-            date_obj = date_type.fromisoformat(pos_dict["date"])
+            open_positions = await self._db.get_open_positions()
+            self._positions = []
 
-            self._positions.append(
-                Position(
-                    bucket=MarketBucket(
-                        token_id=pos_dict.get("token_id", ""),
-                        city=pos_dict["city"],
-                        date=date_obj,
-                        temp_value=pos_dict["temp_f"],
-                        temp_unit="F",  # Default to F for stored positions
-                        market_price=pos_dict["entry_price"],  # Will be updated by update_position_prices
-                        implied_prob=pos_dict["entry_price"],
-                    ),
-                    size=pos_dict["size"],
-                    entry_price=pos_dict["entry_price"],
-                    strategy=pos_dict["strategy"],
-                    p_model=pos_dict.get("p_model", 0.0),
-                    edge=pos_dict.get("edge", 0.0),
+            for pos_dict in open_positions:
+                from datetime import date as date_type
+
+                # Parse date string to date object
+                date_obj = date_type.fromisoformat(pos_dict["date"])
+
+                self._positions.append(
+                    Position(
+                        bucket=MarketBucket(
+                            token_id=pos_dict.get("token_id", ""),
+                            city=pos_dict["city"],
+                            date=date_obj,
+                            temp_value=pos_dict["temp_value"],
+                            temp_unit=pos_dict.get("temp_unit", "F"),
+                            market_price=pos_dict["entry_price"],  # Will be updated by update_position_prices
+                            implied_prob=pos_dict["entry_price"],
+                        ),
+                        size=pos_dict["size"],
+                        entry_price=pos_dict["entry_price"],
+                        strategy=pos_dict["strategy"],
+                        p_model=pos_dict.get("p_model", 0.0),
+                        edge=pos_dict.get("edge", 0.0),
+                    )
                 )
-            )
 
-        self._positions_loaded = True
+            self._positions_loaded = True
