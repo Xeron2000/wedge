@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     kelly_fraction: float = 0.15
     max_bet_pct: float = 0.05
     db_path: str = Field(default_factory=lambda: str(get_data_dir() / "wedge.db"))
+    log_dir: str = Field(default_factory=lambda: str(get_data_dir() / "logs"))
 
     # Ladder strategy
     ladder_edge: float = 0.08

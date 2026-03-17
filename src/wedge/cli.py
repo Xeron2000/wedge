@@ -4,6 +4,8 @@ import asyncio
 
 import typer
 
+from pathlib import Path
+
 from wedge.config import Settings
 from wedge.config_manager import app as config_app
 from wedge.log import setup_logging
@@ -38,7 +40,9 @@ def run(
         overrides["tail_edge"] = tail_edge
 
     settings = Settings.load(**overrides)
-    setup_logging()
+    from datetime import datetime
+    _log_file = Path(settings.log_dir) / f"wedge-{datetime.utcnow().strftime('%Y-%m-%d')}.log"
+    setup_logging(log_file=_log_file)
 
     from wedge.scheduler import run_scheduler
 
