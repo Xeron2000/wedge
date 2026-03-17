@@ -31,10 +31,21 @@ async def show_stats(settings: Settings, days: int = 30) -> None:
 
         if latest_balance:
             balance, unrealized_pnl = latest_balance
-            total_value = balance + unrealized_pnl
+
+            # Get unsettled positions total cost
+            cursor = await db.conn.execute(
+                "SELECT SUM(size) as total_cost FROM trades WHERE settled = 0"
+            )
+            row = await cursor.fetchone()
+            positions_cost = row["total_cost"] or 0
+
+            # Total value = cash + positions value (cost + unrealized P&L)
+            total_value = balance + positions_cost + unrealized_pnl
+
             log.info(
                 "portfolio",
                 cash=f"${balance:.2f}",
+                positions=f"${positions_cost:.2f}",
                 unrealized_pnl=f"${unrealized_pnl:.2f}",
                 total_value=f"${total_value:.2f}",
             )

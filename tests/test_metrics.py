@@ -34,9 +34,14 @@ class TestShowStats:
             "best_trade": None,
             "worst_trade": None,
         }
+        # Mock db.conn.execute for positions_cost query
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone.return_value = {"total_cost": 0}
+        db.conn.execute = AsyncMock(return_value=mock_cursor)
         with (
             patch.object(db, "get_brier_score", return_value=None) as mock_brier,
             patch.object(db, "get_pnl_summary", return_value=mock_pnl),
+            patch.object(db, "get_last_balance_snapshot", return_value=None),
             patch("wedge.monitoring.metrics.Database", return_value=db),
         ):
             await show_stats(settings, days=30)
@@ -52,9 +57,14 @@ class TestShowStats:
             "best_trade": None,
             "worst_trade": None,
         }
+        # Mock db.conn.execute for positions_cost query (no unsettled positions)
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone.return_value = {"total_cost": 0}
+        db.conn.execute = AsyncMock(return_value=mock_cursor)
         with (
             patch.object(db, "get_brier_score", return_value=0.15),
             patch.object(db, "get_pnl_summary", return_value=mock_pnl),
+            patch.object(db, "get_last_balance_snapshot", return_value=(500.0, 25.0)),
             patch("wedge.monitoring.metrics.Database", return_value=db),
         ):
             await show_stats(settings, days=30)
@@ -69,9 +79,14 @@ class TestShowStats:
             "best_trade": None,
             "worst_trade": None,
         }
+        # Mock db.conn.execute for positions_cost query (with unsettled positions)
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone.return_value = {"total_cost": 150.0}
+        db.conn.execute = AsyncMock(return_value=mock_cursor)
         with (
             patch.object(db, "get_brier_score", return_value=0.22),
             patch.object(db, "get_pnl_summary", return_value=mock_pnl),
+            patch.object(db, "get_last_balance_snapshot", return_value=(400.0, -10.0)),
             patch("wedge.monitoring.metrics.Database", return_value=db),
         ):
             await show_stats(settings, days=30)
@@ -86,9 +101,14 @@ class TestShowStats:
             "best_trade": None,
             "worst_trade": None,
         }
+        # Mock db.conn.execute for positions_cost query
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone.return_value = {"total_cost": 0}
+        db.conn.execute = AsyncMock(return_value=mock_cursor)
         with (
             patch.object(db, "get_brier_score", return_value=0.30),
             patch.object(db, "get_pnl_summary", return_value=mock_pnl),
+            patch.object(db, "get_last_balance_snapshot", return_value=None),
             patch("wedge.monitoring.metrics.Database", return_value=db),
         ):
             await show_stats(settings, days=30)
@@ -103,9 +123,14 @@ class TestShowStats:
             "best_trade": 25.0,
             "worst_trade": -8.0,
         }
+        # Mock db.conn.execute for positions_cost query (with unsettled positions)
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchone.return_value = {"total_cost": 200.0}
+        db.conn.execute = AsyncMock(return_value=mock_cursor)
         with (
             patch.object(db, "get_brier_score", return_value=None),
             patch.object(db, "get_pnl_summary", return_value=mock_pnl),
+            patch.object(db, "get_last_balance_snapshot", return_value=(350.0, 15.0)),
             patch("wedge.monitoring.metrics.Database", return_value=db),
         ):
             await show_stats(settings, days=7)
