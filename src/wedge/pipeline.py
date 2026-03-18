@@ -268,7 +268,6 @@ async def _process_city(
     # 5b. Cross-bucket arbitrage detection (structural opportunity, no model needed)
     arb_signal = detect_bucket_arbitrage(
         markets,
-        min_gap=0.05,
         min_buckets=2,
     )
     if arb_signal:
