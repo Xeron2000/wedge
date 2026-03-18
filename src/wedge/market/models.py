@@ -24,6 +24,6 @@ class Position(BaseModel):
     side: Literal["buy"] = "buy"
     size: float  # USD amount
     entry_price: float
-    strategy: Literal["ladder", "tail"]
+    strategy: Literal["ladder", "tail", "arbitrage"]
     p_model: float = 0.0
     edge: float = 0.0

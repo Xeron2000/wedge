@@ -17,6 +17,7 @@ from wedge.market.polymarket import PolymarketClient, PublicPolymarketClient
 from wedge.market.scanner import scan_weather_markets
 from wedge.strategy.edge import detect_edges
 from wedge.strategy.ladder import evaluate_ladder
+from wedge.strategy.arbitrage import detect_bucket_arbitrage
 from wedge.strategy.performance import update_city_performance, get_city_filter, update_all_city_performance
 from wedge.strategy.portfolio import allocate
 from wedge.strategy.tail import evaluate_tail
@@ -264,6 +265,64 @@ async def _process_city(
         fee_rate=settings.fee_rate,
         target_date=target_date,
     )
+    # 5b. Cross-bucket arbitrage detection (structural opportunity, no model needed)
+    arb_signal = detect_bucket_arbitrage(
+        markets,
+        min_gap=0.05,
+        min_buckets=2,
+    )
+    if arb_signal:
+        log.info(
+            "arbitrage_opportunity",
+            city=city_cfg.name,
+            date=str(target_date),
+            price_sum=round(arb_signal.price_sum, 4),
+            gap=round(arb_signal.gap, 4),
+            bucket_count=arb_signal.bucket_count,
+        )
+        import json as _json
+        acted_on = 0
+
+        # Execute arbitrage: buy all buckets proportionally
+        # Each bucket gets equal share of arbitrage budget
+        arb_budget = min(ladder_budget, tail_budget, settings.max_bet * arb_signal.bucket_count)
+        per_bucket_size = round(arb_budget / arb_signal.bucket_count, 2)
+        arb_orders = 0
+        for bucket in arb_signal.buckets:
+            if await db.has_open_position(bucket.city, target_date.isoformat(), bucket.temp_value):
+                continue
+            arb_request = OrderRequest(
+                run_id=run_id,
+                token_id=bucket.token_id,
+                city=bucket.city,
+                date=bucket.date,
+                temp_value=bucket.temp_value,
+                temp_unit=bucket.temp_unit,
+                strategy="arbitrage",
+                limit_price=bucket.market_price,
+                size=per_bucket_size,
+                p_model=bucket.market_price,
+                p_market=bucket.market_price,
+                edge=arb_signal.gap,
+            )
+            arb_result = await executor.place_order(arb_request)
+            if arb_result.success:
+                arb_orders += 1
+        if arb_orders > 0:
+            acted_on = 1
+            log.info("arbitrage_executed", city=city_cfg.name, orders=arb_orders, gap=round(arb_signal.gap, 4))
+
+        await db.record_arbitrage(
+            run_id=run_id,
+            city=city_cfg.name,
+            date=target_date.isoformat(),
+            bucket_count=arb_signal.bucket_count,
+            price_sum=arb_signal.price_sum,
+            gap=arb_signal.gap,
+            token_ids=_json.dumps(arb_signal.token_ids),
+            acted_on=acted_on,
+        )
+
     if not signals:
         log.info("no_edges", city=city_cfg.name)
         return 0
@@ -277,6 +336,7 @@ async def _process_city(
         kelly_fraction=settings.kelly_fraction,
         max_bet=settings.max_bet,
         max_bet_pct=settings.max_bet_pct,
+        spread_baseline=settings.spread_baseline_f,
     )
     tail_positions = evaluate_tail(
         signals, tail_budget,
@@ -287,6 +347,7 @@ async def _process_city(
         max_bet_pct=settings.max_bet_pct,
         max_correlated=settings.tail_max_correlated,
         daily_loss_limit=settings.daily_loss_limit,
+        spread_baseline=settings.spread_baseline_f,
     )
 
     # 7. Execute orders

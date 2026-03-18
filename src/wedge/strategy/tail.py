@@ -130,6 +130,7 @@ def evaluate_tail(
     max_correlated: int = 2,
     daily_loss_limit: float = 200.0,
     existing_positions: list[Position] | None = None,
+    spread_baseline: float = 3.0,  # Ensemble spread baseline (°F) for Kelly damping
 ) -> list[Position]:
     """Select tail positions: extreme temps with high odds and significant edge.
 
@@ -190,6 +191,7 @@ def evaluate_tail(
             max_bet=max_bet,
             max_bet_pct=max_bet_pct,
             ensemble_spread=signal.ensemble_spread,
+            spread_baseline=spread_baseline,
         )
         bet = result.bet_size
         if bet <= 0:

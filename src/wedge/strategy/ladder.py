@@ -12,6 +12,7 @@ def evaluate_ladder(
     kelly_fraction: float = 0.10,  # Reduced from 0.15
     max_bet: float = 50.0,         # Reduced from 100
     max_bet_pct: float = 0.03,     # Reduced from 0.05
+    spread_baseline: float = 3.0,  # Ensemble spread baseline (°F) for Kelly damping
 ) -> list[Position]:
     """Select ladder positions: center-region buckets with range edge > threshold."""
     ladder_signals = [s for s in signals if s.edge > edge_threshold]
@@ -33,6 +34,7 @@ def evaluate_ladder(
             max_bet=max_bet,
             max_bet_pct=max_bet_pct,
             ensemble_spread=signal.ensemble_spread,
+            spread_baseline=spread_baseline,
         )
         bet = result.bet_size
         if bet <= 0:
