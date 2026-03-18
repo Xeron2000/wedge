@@ -17,6 +17,7 @@ from wedge.market.polymarket import PolymarketClient, PublicPolymarketClient
 from wedge.market.scanner import scan_weather_markets
 from wedge.strategy.edge import detect_edges
 from wedge.strategy.ladder import evaluate_ladder
+from wedge.strategy.performance import update_city_performance, get_city_filter, update_all_city_performance
 from wedge.strategy.portfolio import allocate
 from wedge.strategy.tail import evaluate_tail
 from wedge.weather.client import fetch_actual_temperature, fetch_ensemble
@@ -96,9 +97,23 @@ async def run_pipeline(
     cities_processed = 0
     cities_failed = 0
 
+    # Pre-fetch city performance filter (batch)
+    city_names = [c.name for c in settings.cities]
+    city_filter = await get_city_filter(
+        db,
+        city_names,
+        max_brier=settings.min_city_brier_score,
+        window_days=30,
+    )
+
     async with httpx.AsyncClient() as http_client:
         for city_cfg in settings.cities:
             try:
+                # Skip cities with poor recent forecast performance
+                if not city_filter.get(city_cfg.name, True):
+                    log.info("city_skipped_performance", city=city_cfg.name)
+                    continue
+
                 # Compute target dates per city timezone (contract settlement is local)
                 # Only trade 1-2 day forecasts for better accuracy
                 city_tz = ZoneInfo(city_cfg.timezone)
@@ -425,6 +440,17 @@ async def run_settlement(
         )
 
     log.info("settlement_complete", total_settled=total_settled)
+
+    # Update per-city forecast performance after settlement
+    if total_settled > 0:
+        settled_cities = {city for city, _ in unsettled if city not in [p[0] for p in pending_retry]}
+        for city_name in settled_cities:
+            try:
+                await update_city_performance(db, city_name, window_days=30)
+                log.debug("city_performance_updated", city=city_name)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("city_performance_update_failed", city=city_name, error=str(exc))
+
     return total_settled
 
 

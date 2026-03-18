@@ -506,8 +506,17 @@ class Database:
         )
         await self.conn.commit()
 
-    async def get_city_performance(self, window_days: int = 30) -> dict[str, float]:
-        """Get brier scores per city. Returns {city: brier_score}."""
+    async def get_city_performance(self, city: str, window_days: int = 30) -> float | None:
+        """Get brier score for a specific city. Returns None if no data."""
+        cursor = await self.conn.execute(
+            "SELECT brier_score FROM city_performance WHERE city=? AND window_days=?",
+            (city, window_days),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+    async def get_all_city_performance(self, window_days: int = 30) -> dict[str, float]:
+        """Get brier scores for all cities. Returns {city: brier_score}."""
         cursor = await self.conn.execute(
             "SELECT city, brier_score FROM city_performance WHERE window_days=?",
             (window_days,),
