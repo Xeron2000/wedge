@@ -287,9 +287,13 @@ async def _process_city(
         arb_budget = min(ladder_budget, tail_budget, settings.max_bet * arb_signal.bucket_count)
         per_bucket_size = round(arb_budget / arb_signal.bucket_count, 2)
         arb_orders = 0
+        uniform_p = 1.0 / arb_signal.bucket_count
         for bucket in arb_signal.buckets:
             if await db.has_open_position(bucket.city, target_date.isoformat(), bucket.temp_value):
                 continue
+            # Use forecast probability for this bucket; fall back to uniform if not available
+            p_model = forecast.buckets.get(bucket.temp_value, uniform_p)
+            bucket_edge = max(0.0, p_model - bucket.market_price)
             arb_request = OrderRequest(
                 run_id=run_id,
                 token_id=bucket.token_id,
@@ -300,9 +304,9 @@ async def _process_city(
                 strategy="arbitrage",
                 limit_price=bucket.market_price,
                 size=per_bucket_size,
-                p_model=bucket.market_price,
+                p_model=p_model,
                 p_market=bucket.market_price,
-                edge=arb_signal.gap,
+                edge=bucket_edge,
             )
             arb_result = await executor.place_order(arb_request)
             if arb_result.success:
