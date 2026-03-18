@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     # Risk management
     brier_threshold: float = 0.25  # Pause trading if weekly Brier score exceeds this
     brier_decomposition: bool = True  # Track Brier reliability/resolution
+    min_city_brier_score: float = 0.22  # Skip city if 30-day Brier score exceeds this
+    min_city_samples: int = 5  # Min settled trades before applying city filter
+    spread_baseline_f: float = 3.0  # Ensemble spread baseline (°F) for Kelly damping
 
     offsets_utc: list[str] = Field(
         default_factory=lambda: ["04:30", "10:30", "16:30", "22:30"]

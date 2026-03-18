@@ -14,7 +14,7 @@ class OrderRequest(BaseModel):
     date: date
     temp_value: int  # Temperature value (same unit as market)
     temp_unit: str  # "F" or "C"
-    strategy: Literal["ladder", "tail"]
+    strategy: Literal["ladder", "tail", "arbitrage"]
     side: Literal["buy"] = "buy"
     limit_price: float
     size: float  # USD amount
