@@ -100,6 +100,25 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
                             log.warning("arb_discovery_no_markets")
                             return
                     import json as _json
+                    from wedge.execution.dry_run import DryRunExecutor
+                    from wedge.execution.live import LiveExecutor
+                    from wedge.execution.models import OrderRequest
+                    from datetime import datetime, UTC
+
+                    # Create executor for arb orders
+                    current_balance = await db.get_latest_balance() or settings.bankroll
+                    if settings.mode == "live" and settings.polymarket_private_key:
+                        from wedge.market.polymarket import PolymarketClient
+                        _poly = PolymarketClient(
+                            settings.polymarket_private_key,
+                            settings.polymarket_api_key,
+                            settings.polymarket_api_secret,
+                        )
+                        await _poly.connect()
+                        arb_executor: DryRunExecutor | LiveExecutor = LiveExecutor(db, _poly, current_balance, settings.max_bet)
+                    else:
+                        arb_executor = DryRunExecutor(db, current_balance, settings.max_bet)
+
                     signals = await arb_scanner.fast_scan(http_client)
                     for sig in signals:
                         log.info(
@@ -110,9 +129,32 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
                             price_sum=round(sig.price_sum, 4),
                             bucket_count=sig.bucket_count,
                         )
+
+                        # Place orders for all buckets immediately
+                        orders_placed = 0
+                        for bucket in sig.buckets:
+                            req = OrderRequest(
+                                run_id="arb_scanner",
+                                token_id=bucket.token_id,
+                                city=bucket.city,
+                                date=bucket.date,
+                                temp_value=bucket.temp_value,
+                                temp_unit=bucket.temp_unit,
+                                strategy="arbitrage",
+                                limit_price=bucket.market_price,
+                                size=round(sig.gap * current_balance / len(sig.buckets), 2),
+                                p_model=1.0 / len(sig.buckets),
+                                p_market=bucket.market_price,
+                                edge=sig.gap,
+                            )
+                            result = await arb_executor.place_order(req)
+                            if result.success:
+                                orders_placed += 1
+
                         await notifier.send(
                             f"🎯 [Arbitrage] {sig.city} {sig.date}\n"
-                            f"Buckets: {sig.bucket_count} | Sum: {sig.price_sum:.3f} | Gap: {sig.gap*100:.1f}%"
+                            f"Buckets: {sig.bucket_count} | Sum: {sig.price_sum:.3f} | Gap: {sig.gap*100:.1f}%\n"
+                            f"Orders: {orders_placed}/{sig.bucket_count} placed"
                         )
                         await db.record_arbitrage(
                             run_id="arb_scanner",
@@ -122,7 +164,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
                             price_sum=sig.price_sum,
                             gap=sig.gap,
                             token_ids=_json.dumps(sig.token_ids),
-                            acted_on=0,
+                            acted_on=orders_placed,
                         )
             except Exception as e:
                 log.warning("arb_scan_error", error=str(e))
