@@ -106,7 +106,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
                     from datetime import datetime, UTC
 
                     # Create executor for arb orders
-                    current_balance = await db.get_latest_balance() or settings.bankroll
+                    current_balance = await db.get_last_balance(default=settings.bankroll)
                     if settings.mode == "live" and settings.polymarket_private_key:
                         from wedge.market.polymarket import PolymarketClient
                         _poly = PolymarketClient(
