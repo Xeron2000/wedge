@@ -38,6 +38,10 @@ class HotMarket:
     last_prices: dict[str, float] = field(default_factory=dict)  # token_id -> price
     last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
+    @property
+    def bucket_count(self) -> int:
+        return len(self.token_ids)
+
 
 class ArbScanner:
     """Persistent arbitrage scanner with hot-market caching.
@@ -90,7 +94,7 @@ class ArbScanner:
         # Rank by volume_24h + open_interest, take top N
         candidates.sort(key=lambda m: m.volume_24h + m.open_interest, reverse=True)
         self._hot_markets = candidates[: self.top_n]
-        self._discovered = True
+        self._discovered = len(self._hot_markets) > 0
 
         log.info(
             "arb_discovery_complete",
@@ -124,7 +128,7 @@ class ArbScanner:
                 hot.last_prices = {b.token_id: b.market_price for b in buckets}
                 hot.last_updated = datetime.now(timezone.utc)
 
-                signal = detect_bucket_arbitrage(buckets, min_gap=self.min_gap, min_buckets=self.min_buckets)
+                signal = detect_bucket_arbitrage(buckets, threshold=1.0 - self.min_gap, min_buckets=self.min_buckets)
                 if signal:
                     log.info(
                         "arb_fast_scan_hit",
