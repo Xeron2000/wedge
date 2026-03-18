@@ -24,6 +24,10 @@ class ArbitrageSignal:
     token_ids: list[str] = field(default_factory=list)
 
     @property
+    def bucket_count(self) -> int:
+        return len(self.buckets)
+
+    @property
     def expected_profit_pct(self) -> float:
         """Minimum profit as fraction of total outlay if all buckets bought."""
         # Buy 1 share of each bucket: cost = price_sum, receive 1.0 on winner

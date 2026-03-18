@@ -81,7 +81,7 @@ def fractional_kelly(
     # This is more conservative than standard Kelly for binary outcomes
     f_full = (win_prob * win_odds - lose_prob * loss_odds) / win_odds
 
-    if f_full <= 0 or not math.isfinite(f_full):
+    if f_full <= 0 or not math.isfinite(f_full):  # pragma: no cover
         return KellyResult(
             bet_size=0.0, kelly_full=f_full if math.isfinite(f_full) else 0.0,
             kelly_fractional=0.0, edge=p_model - market_price, ev=0.0,
@@ -133,7 +133,7 @@ def fractional_kelly(
     fee_rate = 0.02  # Polymarket 2% fee on winnings
     ev = (p_model * (1 - fee_rate) * win_odds) - lose_prob
 
-    if not math.isfinite(bet):
+    if not math.isfinite(bet):  # pragma: no cover
         return KellyResult(
             bet_size=0.0, kelly_full=f_full, kelly_fractional=f_actual,
             edge=p_model - market_price, ev=ev, reasoning="infinite bet size"

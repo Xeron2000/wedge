@@ -12,6 +12,7 @@ _UTC = ZoneInfo("UTC")
 from wedge.config import Settings
 from wedge.db import Database
 from wedge.log import get_logger
+from wedge.market.arb_scanner import ArbScanner
 from wedge.monitoring.notify import create_notifier, format_alert
 from wedge.pipeline import run_pipeline, run_settlement
 
@@ -72,6 +73,111 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
             id=f"pipeline_{offset}",
         )
 
+    # Arbitrage scanner: init with top-6 markets, then scan every minute
+    _CITY_SLUGS = {
+        "NYC": "nyc", "Miami": "miami", "Seoul": "seoul",
+        "London": "london", "Shanghai": "shanghai", "Wellington": "wellington",
+    }
+    city_slugs = {c.name: _CITY_SLUGS[c.name] for c in settings.cities if c.name in _CITY_SLUGS}
+    arb_scanner = ArbScanner(top_n=6, min_gap=0.05)
+    _arb_lock = asyncio.Lock()
+    _arb_discovered = False
+
+    async def _arb_scan() -> None:
+        """Lightweight every-minute arbitrage scan on cached top markets."""
+        nonlocal _arb_discovered
+        if _arb_lock.locked():
+            return
+        async with _arb_lock:
+            try:
+                import httpx
+                async with httpx.AsyncClient() as http_client:
+                    # First run: discover top-N markets
+                    if not _arb_discovered:
+                        n = await arb_scanner.discover(http_client, city_slugs)
+                        _arb_discovered = n > 0
+                        if not _arb_discovered:
+                            log.warning("arb_discovery_no_markets")
+                            return
+                    import json as _json
+                    from wedge.execution.dry_run import DryRunExecutor
+                    from wedge.execution.live import LiveExecutor
+                    from wedge.execution.models import OrderRequest
+                    from datetime import datetime, UTC
+
+                    # Create executor for arb orders
+                    current_balance = await db.get_latest_balance() or settings.bankroll
+                    if settings.mode == "live" and settings.polymarket_private_key:
+                        from wedge.market.polymarket import PolymarketClient
+                        _poly = PolymarketClient(
+                            settings.polymarket_private_key,
+                            settings.polymarket_api_key,
+                            settings.polymarket_api_secret,
+                        )
+                        await _poly.connect()
+                        arb_executor: DryRunExecutor | LiveExecutor = LiveExecutor(db, _poly, current_balance, settings.max_bet)
+                    else:
+                        arb_executor = DryRunExecutor(db, current_balance, settings.max_bet)
+
+                    signals = await arb_scanner.fast_scan(http_client)
+                    for sig in signals:
+                        log.info(
+                            "arb_scanner_opportunity",
+                            city=sig.city,
+                            date=str(sig.date),
+                            gap=round(sig.gap, 4),
+                            price_sum=round(sig.price_sum, 4),
+                            bucket_count=sig.bucket_count,
+                        )
+
+                        # Place orders for all buckets immediately
+                        orders_placed = 0
+                        for bucket in sig.buckets:
+                            req = OrderRequest(
+                                run_id="arb_scanner",
+                                token_id=bucket.token_id,
+                                city=bucket.city,
+                                date=bucket.date,
+                                temp_value=bucket.temp_value,
+                                temp_unit=bucket.temp_unit,
+                                strategy="arbitrage",
+                                limit_price=bucket.market_price,
+                                size=round(sig.gap * current_balance / len(sig.buckets), 2),
+                                p_model=1.0 / len(sig.buckets),
+                                p_market=bucket.market_price,
+                                edge=sig.gap,
+                            )
+                            result = await arb_executor.place_order(req)
+                            if result.success:
+                                orders_placed += 1
+
+                        await notifier.send(
+                            f"🎯 [Arbitrage] {sig.city} {sig.date}\n"
+                            f"Buckets: {sig.bucket_count} | Sum: {sig.price_sum:.3f} | Gap: {sig.gap*100:.1f}%\n"
+                            f"Orders: {orders_placed}/{sig.bucket_count} placed"
+                        )
+                        await db.record_arbitrage(
+                            run_id="arb_scanner",
+                            city=sig.city,
+                            date=str(sig.date),
+                            bucket_count=sig.bucket_count,
+                            price_sum=sig.price_sum,
+                            gap=sig.gap,
+                            token_ids=_json.dumps(sig.token_ids),
+                            acted_on=orders_placed,
+                        )
+            except Exception as e:
+                log.warning("arb_scan_error", error=str(e))
+
+    scheduler.add_job(
+        _arb_scan,
+        trigger="interval",
+        seconds=60,
+        coalesce=True,
+        misfire_grace_time=30,
+        id="arb_scan_1m",
+    )
+
     scheduler.start()
     log.info(
         "scheduler_started",
@@ -79,6 +185,7 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
         windows=settings.offsets_utc,
         bankroll=settings.bankroll,
         telegram=enable_telegram,
+        arb_scan_markets=arb_scanner.top_n,
     )
 
     # Run one immediate cycle
