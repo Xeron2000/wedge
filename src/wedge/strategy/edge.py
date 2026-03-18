@@ -145,6 +145,20 @@ def detect_edges(
 
         odds = (1.0 - bucket.market_price) / bucket.market_price
 
+        # GFS update window weight
+        # GFS releases every 6h; edge is strongest in the 1-2h after update
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        age_hours = (now - forecast.updated_at).total_seconds() / 3600.0
+        if age_hours < 1.0:
+            forecast_weight = 1.3
+        elif age_hours < 2.0:
+            forecast_weight = 1.0
+        elif age_hours < 4.0:
+            forecast_weight = 0.8
+        else:
+            forecast_weight = 0.6
+
         signals.append(
             EdgeSignal(
                 city=bucket.city,
@@ -156,6 +170,9 @@ def detect_edges(
                 p_market=bucket.market_price,
                 edge=edge,
                 odds=odds,
+                ensemble_spread=forecast.ensemble_spread,
+                forecast_age_hours=round(age_hours, 2),
+                weight=forecast_weight,
             )
         )
 

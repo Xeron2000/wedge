@@ -29,9 +29,10 @@ def evaluate_ladder(
             p_model=signal.p_model,
             market_price=signal.p_market,
             bankroll=remaining,
-            fraction=kelly_fraction,
+            fraction=kelly_fraction * signal.weight,
             max_bet=max_bet,
             max_bet_pct=max_bet_pct,
+            ensemble_spread=signal.ensemble_spread,
         )
         bet = result.bet_size
         if bet <= 0:
