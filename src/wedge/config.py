@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     slippage_model: str = "volume_based"  # volume_based or fixed
 
     # Risk management
+    arb_min_price: float = 0.05  # Skip arb buckets with market price below this threshold
     brier_threshold: float = 0.25  # Pause trading if weekly Brier score exceeds this
     brier_decomposition: bool = True  # Track Brier reliability/resolution
     min_city_brier_score: float = 0.22  # Skip city if 30-day Brier score exceeds this

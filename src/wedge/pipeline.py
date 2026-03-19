@@ -291,6 +291,16 @@ async def _process_city(
         for bucket in arb_signal.buckets:
             if await db.has_open_position(bucket.city, target_date.isoformat(), bucket.temp_value):
                 continue
+            # Skip buckets with market price below minimum threshold (extreme improbable outcomes)
+            if bucket.market_price < settings.arb_min_price:
+                log.debug(
+                    "arb_bucket_skipped_low_price",
+                    city=bucket.city,
+                    temp_value=bucket.temp_value,
+                    market_price=bucket.market_price,
+                    min_price=settings.arb_min_price,
+                )
+                continue
             # Use forecast probability for this bucket; fall back to uniform if not available
             p_model = forecast.buckets.get(bucket.temp_value, uniform_p)
             bucket_edge = max(0.0, p_model - bucket.market_price)
