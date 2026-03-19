@@ -133,6 +133,16 @@ async def run_scheduler(settings: Settings, *, enable_telegram: bool = False) ->
                         # Place orders for all buckets immediately
                         orders_placed = 0
                         for bucket in sig.buckets:
+                            # Skip buckets with market price below minimum threshold
+                            if bucket.market_price < settings.arb_min_price:
+                                log.debug(
+                                    "arb_scanner_bucket_skipped_low_price",
+                                    city=bucket.city,
+                                    temp_value=bucket.temp_value,
+                                    market_price=bucket.market_price,
+                                    min_price=settings.arb_min_price,
+                                )
+                                continue
                             req = OrderRequest(
                                 run_id="arb_scanner",
                                 token_id=bucket.token_id,
