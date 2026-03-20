@@ -109,7 +109,9 @@ class Settings(BaseSettings):
     spread_baseline_f: float = 3.0  # Ensemble spread baseline (°F) for Kelly damping
 
     offsets_utc: list[str] = Field(
-        default_factory=lambda: ["04:30", "10:30", "16:30", "22:30"]
+        default_factory=lambda: ["03:45", "09:45", "15:45", "21:45"]
+        # GFS model runs at 00/06/12/18 UTC; data available ~3.5h later.
+        # Running at :45 past the hour catches fresh data before market makers reprice.
     )
 
     cities: list[CityConfig] = Field(default_factory=lambda: list(DEFAULT_CITIES))
