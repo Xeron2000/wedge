@@ -121,6 +121,61 @@ class DryRunExecutor:
                 pos.bucket.market_price = current_price
                 pos.bucket.implied_prob = current_price
 
+    async def close_position(
+        self,
+        city: str,
+        date_str: str,
+        temp_f: float,
+        exit_price: float,
+        exit_reason: str,
+        db: "Database",
+    ) -> float:
+        """Close a position at exit_price. Returns realized pnl."""
+        if not self._positions_loaded:
+            await self._load_positions_from_db()
+
+        # Find matching position
+        matched = None
+        for pos in self._positions:
+            if (
+                pos.bucket.city == city
+                and pos.bucket.date.isoformat() == date_str
+                and pos.bucket.temp_value == temp_f
+            ):
+                matched = pos
+                break
+
+        if matched is None:
+            log.warning("dry_run_close_not_found", city=city, date=date_str, temp_f=temp_f)
+            return 0.0
+
+        # Binary option: shares = size / entry_price, pnl = shares * exit_price - size
+        shares = matched.size / matched.entry_price
+        pnl = shares * exit_price - matched.size
+        self._balance += matched.size + pnl  # return cost basis + profit
+        self._positions.remove(matched)
+
+        log.info(
+            "dry_run_close_position",
+            city=city,
+            date=date_str,
+            temp_f=temp_f,
+            entry_price=matched.entry_price,
+            exit_price=exit_price,
+            exit_reason=exit_reason,
+            pnl=round(pnl, 4),
+        )
+
+        await db.close_position(
+            city=city,
+            date_str=date_str,
+            temp_f=temp_f,
+            pnl=round(pnl, 4),
+            exit_price=exit_price,
+            exit_reason=exit_reason,
+        )
+        return pnl
+
     async def get_unrealized_pnl(self) -> float:
         """Calculate unrealized P&L from current position values.
 

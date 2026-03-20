@@ -97,6 +97,11 @@ class Settings(BaseSettings):
 
     # Risk management
     arb_min_price: float = 0.05  # Skip arb buckets with market price below this threshold
+
+    # Exit strategy (probability-based)
+    exit_loss_factor: float = 0.5    # Stop-loss: exit when p_model < entry_price * this factor
+    exit_min_ev: float = 0.0         # Take-profit: exit when EV drops to or below this value
+    exit_min_hours_to_settle: int = 12  # Don't exit within this many hours of settlement
     brier_threshold: float = 0.25  # Pause trading if weekly Brier score exceeds this
     brier_decomposition: bool = True  # Track Brier reliability/resolution
     min_city_brier_score: float = 0.22  # Skip city if 30-day Brier score exceeds this
@@ -104,7 +109,9 @@ class Settings(BaseSettings):
     spread_baseline_f: float = 3.0  # Ensemble spread baseline (°F) for Kelly damping
 
     offsets_utc: list[str] = Field(
-        default_factory=lambda: ["04:30", "10:30", "16:30", "22:30"]
+        default_factory=lambda: ["03:45", "09:45", "15:45", "21:45"]
+        # GFS model runs at 00/06/12/18 UTC; data available ~3.5h later.
+        # Running at :45 past the hour catches fresh data before market makers reprice.
     )
 
     cities: list[CityConfig] = Field(default_factory=lambda: list(DEFAULT_CITIES))
