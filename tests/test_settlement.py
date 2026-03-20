@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from wedge.config import DEFAULT_CITIES, Settings
+from wedge.config import Settings
 from wedge.db import Database
 
 
@@ -137,8 +137,12 @@ class TestUpdateForecastActual:
     async def test_updates_actual_temp(self, db):
         await db.insert_run("run1", "2026-07-01T00:00:00")
         await db.insert_forecast(
-            run_id="run1", city="NYC", date="2026-07-01",
-            temp_f=78, p_model=0.25, created_at="2026-07-01T00:00:00",
+            run_id="run1",
+            city="NYC",
+            date="2026-07-01",
+            temp_f=78,
+            p_model=0.25,
+            created_at="2026-07-01T00:00:00",
         )
         await db.update_forecast_actual("NYC", "2026-07-01", 80)
 
@@ -158,12 +162,20 @@ class TestBrierScoreAfterSettlement:
 
         await db.insert_run("run1", "2026-07-01T00:00:00")
         await db.insert_forecast(
-            run_id="run1", city="NYC", date="2026-07-01",
-            temp_f=78, p_model=0.25, created_at=datetime.now(UTC).isoformat(),
+            run_id="run1",
+            city="NYC",
+            date="2026-07-01",
+            temp_f=78,
+            p_model=0.25,
+            created_at=datetime.now(UTC).isoformat(),
         )
         await db.insert_forecast(
-            run_id="run1", city="NYC", date="2026-07-01",
-            temp_f=79, p_model=0.40, created_at=datetime.now(UTC).isoformat(),
+            run_id="run1",
+            city="NYC",
+            date="2026-07-01",
+            temp_f=79,
+            p_model=0.40,
+            created_at=datetime.now(UTC).isoformat(),
         )
 
         # Settle: actual was 79
@@ -181,8 +193,12 @@ class TestBrierScoreAfterSettlement:
     async def test_perfect_brier_score(self, db):
         await db.insert_run("run1", "2026-07-01T00:00:00")
         await db.insert_forecast(
-            run_id="run1", city="NYC", date="2026-07-01",
-            temp_f=78, p_model=1.0, created_at=datetime.now(UTC).isoformat(),
+            run_id="run1",
+            city="NYC",
+            date="2026-07-01",
+            temp_f=78,
+            p_model=1.0,
+            created_at=datetime.now(UTC).isoformat(),
         )
         await db.update_forecast_actual("NYC", "2026-07-01", 78)
         brier = await db.get_brier_score(days=30)
@@ -198,8 +214,12 @@ class TestRunSettlement:
         await db.insert_run("run1", "2026-01-01T00:00:00")
         await _insert_trade(db, "run1", "NYC", "2026-01-01", 78)
         await db.insert_forecast(
-            run_id="run1", city="NYC", date="2026-01-01",
-            temp_f=78, p_model=0.25, created_at=datetime.now(UTC).isoformat(),
+            run_id="run1",
+            city="NYC",
+            date="2026-01-01",
+            temp_f=78,
+            p_model=0.25,
+            created_at=datetime.now(UTC).isoformat(),
         )
 
         mock_notifier = AsyncMock()

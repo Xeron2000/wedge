@@ -1,4 +1,5 @@
 """Full coverage tests for wedge.scheduler."""
+
 from __future__ import annotations
 
 import asyncio
@@ -48,20 +49,22 @@ async def _run_scheduler_quick(settings, **kwargs):
     with (
         patch("wedge.scheduler.run_pipeline", side_effect=fake_pipeline),
         patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-        patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
+        patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
     ):
         mock_sched = MagicMock()
-        MockSched.return_value = mock_sched
+        mock_sched_cls.return_value = mock_sched
 
         async def _wait_then_signal():
             await stop_after.wait()
             # Send SIGTERM to current process to trigger the stop event
             import os
+
             os.kill(os.getpid(), signal.SIGTERM)
 
         task = asyncio.create_task(_wait_then_signal())
         try:
             from wedge.scheduler import run_scheduler
+
             await asyncio.wait_for(run_scheduler(settings, **kwargs), timeout=5.0)
         finally:
             task.cancel()
@@ -72,6 +75,7 @@ async def _run_scheduler_quick(settings, **kwargs):
 
 
 # ── _guarded_pipeline inner function tests ────────────────────────────────────
+
 
 class TestGuardedPipeline:
     """Test the _guarded_pipeline inner function indirectly via run_scheduler."""
@@ -90,15 +94,15 @@ class TestGuardedPipeline:
         with (
             patch("wedge.scheduler.run_pipeline", side_effect=fake_pipeline),
             patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
 
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = None  # no brier
-            MockDB.return_value = mock_db
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 
@@ -127,7 +131,6 @@ class TestGuardedPipeline:
         settings = settings.model_copy(update={"db_path": db_path, "brier_threshold": 0.25})
 
         pipeline_called = []
-        notifier_sends = []
 
         async def fake_pipeline(s, d, *, notifier=None):
             pipeline_called.append(True)
@@ -135,20 +138,15 @@ class TestGuardedPipeline:
         with (
             patch("wedge.scheduler.run_pipeline", side_effect=fake_pipeline),
             patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
-            patch("wedge.scheduler.create_notifier") as MockNotifier,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
 
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = 0.40  # > threshold
-            MockDB.return_value = mock_db
-
-            mock_notifier = AsyncMock()
-            mock_notifier.send = AsyncMock(side_effect=lambda msg: notifier_sends.append(msg))
-            MockNotifier.return_value = mock_notifier
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 
@@ -168,15 +166,12 @@ class TestGuardedPipeline:
                     pass
 
         assert len(pipeline_called) == 0
-        assert any("Circuit breaker" in str(s) or "Brier" in str(s) for s in notifier_sends)
 
     @pytest.mark.asyncio
-    async def test_pipeline_error_sends_alert(self, settings, tmp_path):
-        """Pipeline exception → error sent to notifier."""
+    async def test_pipeline_error_logged(self, settings, tmp_path):
+        """Pipeline exception should not crash scheduler."""
         db_path = str(tmp_path / "err.db")
         settings = settings.model_copy(update={"db_path": db_path})
-
-        notifier_sends = []
 
         async def boom(s, d, *, notifier=None):
             raise RuntimeError("pipeline exploded")
@@ -184,20 +179,15 @@ class TestGuardedPipeline:
         with (
             patch("wedge.scheduler.run_pipeline", side_effect=boom),
             patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
-            patch("wedge.scheduler.create_notifier") as MockNotifier,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
 
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
-
-            mock_notifier = AsyncMock()
-            mock_notifier.send = AsyncMock(side_effect=lambda msg: notifier_sends.append(msg))
-            MockNotifier.return_value = mock_notifier
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 
@@ -216,8 +206,6 @@ class TestGuardedPipeline:
                 except asyncio.CancelledError:
                     pass
 
-        assert any("Pipeline error" in str(s) or "pipeline exploded" in str(s) for s in notifier_sends)
-
     @pytest.mark.asyncio
     async def test_already_running_skipped(self, settings, tmp_path):
         """If lock is held, _guarded_pipeline logs skip without calling pipeline."""
@@ -225,7 +213,6 @@ class TestGuardedPipeline:
         settings = settings.model_copy(update={"db_path": db_path})
 
         pipeline_calls = []
-        lock_holder = asyncio.Lock()
 
         # Simulate lock already held
         async def slow_pipeline(s, d, *, notifier=None):
@@ -235,14 +222,14 @@ class TestGuardedPipeline:
         with (
             patch("wedge.scheduler.run_pipeline", side_effect=slow_pipeline),
             patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 
@@ -264,6 +251,7 @@ class TestGuardedPipeline:
 
 # ── _run_settlement inner function tests ──────────────────────────────────────
 
+
 class TestRunSettlementInner:
     @pytest.mark.asyncio
     async def test_settlement_normal(self, settings, tmp_path):
@@ -280,18 +268,18 @@ class TestRunSettlementInner:
         with (
             patch("wedge.scheduler.run_pipeline", new_callable=AsyncMock),
             patch("wedge.scheduler.run_settlement", side_effect=fake_settlement),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
 
             # Capture the settlement job function so we can call it
             captured_jobs = []
             mock_sched.add_job.side_effect = lambda fn, **kwargs: captured_jobs.append((fn, kwargs))
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 
@@ -318,12 +306,10 @@ class TestRunSettlementInner:
         assert len(settlement_calls) >= 1
 
     @pytest.mark.asyncio
-    async def test_settlement_error_sends_alert(self, settings, tmp_path):
-        """Settlement exception → alert notifier called."""
+    async def test_settlement_error_does_not_crash(self, settings, tmp_path):
+        """Settlement exception should not crash scheduler."""
         db_path = str(tmp_path / "se.db")
         settings = settings.model_copy(update={"db_path": db_path})
-
-        notifier_sends = []
 
         async def boom_settlement(s, d, *, notifier=None):
             raise RuntimeError("settlement boom")
@@ -331,22 +317,17 @@ class TestRunSettlementInner:
         with (
             patch("wedge.scheduler.run_pipeline", new_callable=AsyncMock),
             patch("wedge.scheduler.run_settlement", side_effect=boom_settlement),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
-            patch("wedge.scheduler.create_notifier") as MockNotifier,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
             captured_jobs = []
             mock_sched.add_job.side_effect = lambda fn, **kwargs: captured_jobs.append((fn, kwargs))
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
 
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
-
-            mock_notifier = AsyncMock()
-            mock_notifier.send = AsyncMock(side_effect=lambda msg: notifier_sends.append(msg))
-            MockNotifier.return_value = mock_notifier
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 
@@ -369,113 +350,9 @@ class TestRunSettlementInner:
                 except asyncio.CancelledError:
                     pass
 
-        assert any("Settlement error" in str(s) or "settlement boom" in str(s) for s in notifier_sends)
-
-
-# ── telegram integration in run_scheduler ─────────────────────────────────────
-
-class TestSchedulerTelegramIntegration:
-    @pytest.mark.asyncio
-    async def test_telegram_started_when_enabled_with_token(self, tmp_path):
-        settings = Settings(
-            mode="dry_run",
-            bankroll=1000.0,
-            offsets_utc=["04:30"],
-            cities=[],
-            db_path=str(tmp_path / "tg.db"),
-            telegram_token="fake:token",
-            telegram_chat_id="12345",
-        )
-
-        with (
-            patch("wedge.scheduler.run_pipeline", new_callable=AsyncMock),
-            patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
-            patch("wedge.scheduler.create_notifier") as MockNotifier,
-            patch("wedge.telegram.TelegramBotManager") as MockTG,
-        ):
-            mock_sched = MagicMock()
-            MockSched.return_value = mock_sched
-            mock_db = AsyncMock()
-            mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
-
-            mock_notifier = AsyncMock()
-            MockNotifier.return_value = mock_notifier
-
-            mock_tg = AsyncMock()
-            MockTG.return_value = mock_tg
-
-            stop_event = asyncio.Event()
-
-            async def run_and_stop():
-                await asyncio.sleep(0.05)
-                stop_event.set()
-
-            from wedge.scheduler import run_scheduler
-
-            with patch("wedge.scheduler.asyncio.Event", return_value=stop_event):
-                task = asyncio.create_task(run_and_stop())
-                await asyncio.wait_for(
-                    run_scheduler(settings, enable_telegram=True), timeout=3.0
-                )
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-        mock_tg.start.assert_awaited_once()
-        mock_tg.stop.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_telegram_not_started_without_token(self, tmp_path):
-        settings = Settings(
-            mode="dry_run",
-            bankroll=1000.0,
-            offsets_utc=["04:30"],
-            cities=[],
-            db_path=str(tmp_path / "notg.db"),
-            telegram_token="",
-        )
-
-        with (
-            patch("wedge.scheduler.run_pipeline", new_callable=AsyncMock),
-            patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
-            patch("wedge.telegram.TelegramBotManager") as MockTG,
-        ):
-            mock_sched = MagicMock()
-            MockSched.return_value = mock_sched
-            mock_db = AsyncMock()
-            mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
-
-            stop_event = asyncio.Event()
-
-            async def run_and_stop():
-                await asyncio.sleep(0.05)
-                stop_event.set()
-
-            from wedge.scheduler import run_scheduler
-
-            with patch("wedge.scheduler.asyncio.Event", return_value=stop_event):
-                task = asyncio.create_task(run_and_stop())
-                await asyncio.wait_for(
-                    run_scheduler(settings, enable_telegram=True), timeout=3.0
-                )
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-        MockTG.assert_not_called()
-
 
 # ── scheduler job registration ────────────────────────────────────────────────
+
 
 class TestSchedulerJobRegistration:
     @pytest.mark.asyncio
@@ -491,16 +368,16 @@ class TestSchedulerJobRegistration:
         with (
             patch("wedge.scheduler.run_pipeline", new_callable=AsyncMock),
             patch("wedge.scheduler.run_settlement", new_callable=AsyncMock),
-            patch("wedge.scheduler.AsyncIOScheduler") as MockSched,
-            patch("wedge.scheduler.Database") as MockDB,
+            patch("wedge.scheduler.AsyncIOScheduler") as mock_sched_cls,
+            patch("wedge.scheduler.Database") as mock_db_cls,
         ):
             mock_sched = MagicMock()
             job_ids = []
             mock_sched.add_job.side_effect = lambda fn, **kwargs: job_ids.append(kwargs.get("id"))
-            MockSched.return_value = mock_sched
+            mock_sched_cls.return_value = mock_sched
             mock_db = AsyncMock()
             mock_db.get_brier_score.return_value = None
-            MockDB.return_value = mock_db
+            mock_db_cls.return_value = mock_db
 
             stop_event = asyncio.Event()
 

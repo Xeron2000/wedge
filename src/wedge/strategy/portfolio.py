@@ -3,8 +3,8 @@ from __future__ import annotations
 
 def allocate(
     bankroll: float,
-    ladder_pct: float = 0.70,
-    tail_pct: float = 0.20,
+    ladder_pct: float = 0.90,
+    tail_pct: float = 0.0,
 ) -> tuple[float, float, float]:
     """Split bankroll into (ladder_budget, tail_budget, cash_reserve)."""
     cash_pct = 1.0 - ladder_pct - tail_pct

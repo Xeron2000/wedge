@@ -2,6 +2,7 @@
 .ace-tool/
 .claude/
 .omp/
+.omc/
 .mcp.json
 
 # Node

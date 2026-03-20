@@ -1,54 +1,52 @@
 from __future__ import annotations
 
 import math
-import re
 from datetime import UTC, date, datetime
 
 from wedge.weather.models import ForecastDistribution
 
-_MEMBER_RE = re.compile(r"^temperature_2m_max_member\d+$")
 _MIN_MEMBERS = 10
 
 
 def parse_distribution(
-    raw: dict, city: str, target_date: date
+    raw: dict[str, object], city: str, target_date: date
 ) -> ForecastDistribution | None:
-    daily = raw.get("daily", {})
-    times = daily.get("time", [])
-    if not times:
+    if raw.get("source") != "noaa_gefs":
+        return None
+    if raw.get("target_date") != target_date.isoformat():
         return None
 
-    try:
-        date_idx = times.index(target_date.isoformat())
-    except ValueError:
-        return None
-
-    member_keys = [k for k in daily if _MEMBER_RE.match(k)]
-    if not member_keys:
+    member_temps = raw.get("member_temps_f")
+    if not isinstance(member_temps, dict):
         return None
 
     temps: list[float] = []
-    for key in member_keys:
-        values = daily[key]
-        if date_idx < len(values):
-            v = values[date_idx]
-            if v is not None and math.isfinite(v):
-                temps.append(v)
+    for value in member_temps.values():
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            temps.append(float(value))
 
     if len(temps) < _MIN_MEMBERS:
         return None
 
     buckets: dict[int, int] = {}
-    for t in temps:
-        bucket = round(t)
+    for temp in temps:
+        bucket = round(temp)
         buckets[bucket] = buckets.get(bucket, 0) + 1
 
     total = sum(buckets.values())
-    prob_buckets = {k: v / total for k, v in buckets.items()}
+    prob_buckets = {bucket: count / total for bucket, count in buckets.items()}
 
     mean = sum(temps) / len(temps)
-    variance = sum((t - mean) ** 2 for t in temps) / len(temps)
+    variance = sum((temp - mean) ** 2 for temp in temps) / len(temps)
     spread = math.sqrt(variance)
+
+    run_time = raw.get("run_time")
+    updated_at = datetime.now(UTC)
+    if isinstance(run_time, str):
+        try:
+            updated_at = datetime.fromisoformat(run_time)
+        except ValueError:
+            updated_at = datetime.now(UTC)
 
     return ForecastDistribution(
         city=city,
@@ -56,5 +54,5 @@ def parse_distribution(
         buckets=prob_buckets,
         ensemble_spread=spread,
         member_count=len(temps),
-        updated_at=datetime.now(UTC),
+        updated_at=updated_at,
     )

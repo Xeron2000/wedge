@@ -16,6 +16,8 @@ dependencies = [
     "tomli-w>=1.0",
     "scikit-learn>=1.8.0",
     "numpy>=2.4.3",
+    "eccodes>=2.46.0",
+    "eccodeslib>=2.46.1.14",
 ]
 
 [project.scripts]

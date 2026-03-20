@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal
 
 _EPS = 1e-6
 
@@ -10,6 +9,7 @@ _EPS = 1e-6
 @dataclass
 class KellyResult:
     """Kelly calculation result with breakdown."""
+
     bet_size: float
     kelly_full: float  # Full Kelly fraction
     kelly_fractional: float  # Actual fraction used
@@ -23,7 +23,7 @@ def fractional_kelly(
     market_price: float,
     bankroll: float,
     fraction: float = 0.10,  # Reduced from 0.15 to 0.10 for more conservatism
-    max_bet: float = 50.0,   # Reduced from 100 to 50
+    max_bet: float = 50.0,  # Reduced from 100 to 50
     max_bet_pct: float = 0.03,  # Reduced from 5% to 3%
     capital_lockup_days: int = 3,
     funding_rate: float = 0.08,  # Annual funding cost
@@ -55,20 +55,32 @@ def fractional_kelly(
     """
     if bankroll <= 0:
         return KellyResult(
-            bet_size=0.0, kelly_full=0.0, kelly_fractional=0.0,
-            edge=0.0, ev=0.0, reasoning="bankroll <= 0"
+            bet_size=0.0,
+            kelly_full=0.0,
+            kelly_fractional=0.0,
+            edge=0.0,
+            ev=0.0,
+            reasoning="bankroll <= 0",
         )
 
     if not (_EPS < market_price < 1 - _EPS):
         return KellyResult(
-            bet_size=0.0, kelly_full=0.0, kelly_fractional=0.0,
-            edge=0.0, ev=0.0, reasoning=f"invalid market_price: {market_price}"
+            bet_size=0.0,
+            kelly_full=0.0,
+            kelly_fractional=0.0,
+            edge=0.0,
+            ev=0.0,
+            reasoning=f"invalid market_price: {market_price}",
         )
 
     if p_model <= market_price:
         return KellyResult(
-            bet_size=0.0, kelly_full=0.0, kelly_fractional=0.0,
-            edge=p_model - market_price, ev=0.0, reasoning="no edge (p_model <= p_market)"
+            bet_size=0.0,
+            kelly_full=0.0,
+            kelly_fractional=0.0,
+            edge=p_model - market_price,
+            ev=0.0,
+            reasoning="no edge (p_model <= p_market)",
         )
 
     # Binary Kelly formula (Thorp correction for 100% loss risk)
@@ -83,9 +95,12 @@ def fractional_kelly(
 
     if f_full <= 0 or not math.isfinite(f_full):  # pragma: no cover
         return KellyResult(
-            bet_size=0.0, kelly_full=f_full if math.isfinite(f_full) else 0.0,
-            kelly_fractional=0.0, edge=p_model - market_price, ev=0.0,
-            reasoning="negative or infinite Kelly fraction"
+            bet_size=0.0,
+            kelly_full=f_full if math.isfinite(f_full) else 0.0,
+            kelly_fractional=0.0,
+            edge=p_model - market_price,
+            ev=0.0,
+            reasoning="negative or infinite Kelly fraction",
         )
 
     # Apply fractional Kelly with additional safety margin for fat tails
@@ -124,10 +139,13 @@ def fractional_kelly(
     if original_bet > cap:
         reasoning_parts.append(f"capped at {cap:.2f}")
     if lockup_cost > 0:
-        reasoning_parts.append(f"lockup cost: {lockup_cost*100:.2f}%")
+        reasoning_parts.append(f"lockup cost: {lockup_cost * 100:.2f}%")
     if ensemble_spread > 0:
-        reasoning_parts.append(f"spread_damping: {spread_damping:.2f} (spread={ensemble_spread:.1f}°F)")
-    reasoning_parts.append(f"edge: {(p_model - market_price)*100:.1f}%")
+        reasoning_parts.append(
+            f"spread_damping: {spread_damping:.2f} "
+            f"(spread={ensemble_spread:.1f}°F)"
+        )
+    reasoning_parts.append(f"edge: {(p_model - market_price) * 100:.1f}%")
 
     # Calculate EV for reporting
     fee_rate = 0.02  # Polymarket 2% fee on winnings
@@ -135,8 +153,12 @@ def fractional_kelly(
 
     if not math.isfinite(bet):  # pragma: no cover
         return KellyResult(
-            bet_size=0.0, kelly_full=f_full, kelly_fractional=f_actual,
-            edge=p_model - market_price, ev=ev, reasoning="infinite bet size"
+            bet_size=0.0,
+            kelly_full=f_full,
+            kelly_fractional=f_actual,
+            edge=p_model - market_price,
+            ev=ev,
+            reasoning="infinite bet size",
         )
 
     return KellyResult(
@@ -145,7 +167,7 @@ def fractional_kelly(
         kelly_fractional=f_actual,
         edge=p_model - market_price,
         ev=ev,
-        reasoning="; ".join(reasoning_parts) if reasoning_parts else "ok"
+        reasoning="; ".join(reasoning_parts) if reasoning_parts else "ok",
     )
 
 

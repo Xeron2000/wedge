@@ -1,8 +1,10 @@
 """Test dry-run P&L calculations for binary options."""
+
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 import pytest
-from datetime import date, datetime, UTC
 
 from wedge.db import Database
 from wedge.execution.dry_run import DryRunExecutor
@@ -98,8 +100,9 @@ async def test_settled_pnl_with_fee(db):
     # Expected: (1.0 - 0.40) * 100 / 0.40 = 150
     # After 2% fee: 150 * 0.98 = 147
     expected_pnl = 147.0
-    assert abs(summary["total_pnl"] - expected_pnl) < 0.01, \
+    assert abs(summary["total_pnl"] - expected_pnl) < 0.01, (
         f"Expected P&L ~{expected_pnl}, got {summary['total_pnl']}"
+    )
 
 
 @pytest.mark.asyncio
@@ -133,8 +136,9 @@ async def test_settled_pnl_losing_trade_no_fee(db):
     # Expected: (0.0 - 0.40) * 100 / 0.40 = -100
     # No fee on losses
     expected_pnl = -100.0
-    assert abs(summary["total_pnl"] - expected_pnl) < 0.01, \
+    assert abs(summary["total_pnl"] - expected_pnl) < 0.01, (
         f"Expected P&L ~{expected_pnl}, got {summary['total_pnl']}"
+    )
 
 
 @pytest.mark.asyncio

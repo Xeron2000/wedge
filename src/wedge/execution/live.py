@@ -15,8 +15,8 @@ log = get_logger("execution.live")
 
 # Order execution constants
 MAKER_TIMEOUT_SECONDS = 30  # Wait 30s for maker order to fill
-MAKER_PRICE_OFFSET = 0.01   # Place maker 1¢ below mid price
-TAKER_PRICE_OFFSET = 0.02   # Taker 2¢ above mid for faster fill
+MAKER_PRICE_OFFSET = 0.01  # Place maker 1¢ below mid price
+TAKER_PRICE_OFFSET = 0.02  # Taker 2¢ above mid for faster fill
 
 
 class LiveExecutor:

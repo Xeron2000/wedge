@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import math
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from wedge.strategy.kelly import fractional_kelly, KellyResult, legacy_fractional_kelly
+from wedge.strategy.kelly import KellyResult, fractional_kelly, legacy_fractional_kelly
 
 
 class TestKelly:
@@ -43,15 +42,11 @@ class TestKelly:
         assert result.bet_size == 0.0
 
     def test_max_bet_cap(self):
-        result = fractional_kelly(
-            p_model=0.99, market_price=0.01, bankroll=100000, max_bet=50
-        )
+        result = fractional_kelly(p_model=0.99, market_price=0.01, bankroll=100000, max_bet=50)
         assert result.bet_size <= 50
 
     def test_max_bet_pct_cap(self):
-        result = fractional_kelly(
-            p_model=0.99, market_price=0.01, bankroll=1000, max_bet_pct=0.03
-        )
+        result = fractional_kelly(p_model=0.99, market_price=0.01, bankroll=1000, max_bet_pct=0.03)
         assert result.bet_size <= 30  # 1000 * 0.03
 
     def test_kelly_result_contains_breakdown(self):
@@ -66,9 +61,7 @@ class TestKelly:
 
     def test_fat_tail_discount_applied(self):
         """Test that fat tail discount (0.8) is applied."""
-        result = fractional_kelly(
-            p_model=0.40, market_price=0.30, bankroll=1000, fraction=0.10
-        )
+        result = fractional_kelly(p_model=0.40, market_price=0.30, bankroll=1000, fraction=0.10)
 
         # f_actual = f_full * fraction * fat_tail_discount (0.8)
         expected_fraction = 0.10 * 0.8
@@ -83,17 +76,14 @@ class TestKelly:
         )
 
         result_with_lockup = fractional_kelly(
-            p_model=0.40, market_price=0.30, bankroll=1000,
-            capital_lockup_days=7, funding_rate=0.10
+            p_model=0.40, market_price=0.30, bankroll=1000, capital_lockup_days=7, funding_rate=0.10
         )
 
         assert result_with_lockup.bet_size < result_no_lockup.bet_size
 
     def test_legacy_function_backwards_compatibility(self):
         """Test legacy function returns just bet size as float."""
-        bet = legacy_fractional_kelly(
-            p_model=0.40, market_price=0.30, bankroll=1000
-        )
+        bet = legacy_fractional_kelly(p_model=0.40, market_price=0.30, bankroll=1000)
 
         assert isinstance(bet, float)
         assert bet > 0
@@ -134,7 +124,7 @@ class TestKellyEdgeCases:
         # p_model < market_price => negative edge => f_full <= 0
         result = fractional_kelly(0.20, 0.50, 1000)
         assert result.bet_size == 0.0
-        assert 'edge' in result.reasoning
+        assert "edge" in result.reasoning
 
     def test_zero_spread_no_damping(self):
         # ensemble_spread=0 -> spread_damping=1.0 (no effect)
@@ -145,7 +135,7 @@ class TestKellyEdgeCases:
     def test_spread_damping_in_reasoning(self):
         # ensemble_spread > 0 -> reasoning includes spread_damping
         result = fractional_kelly(0.65, 0.50, 1000, ensemble_spread=2.0, spread_baseline=3.0)
-        assert 'spread_damping' in result.reasoning
+        assert "spread_damping" in result.reasoning
 
     def test_spread_baseline_zero_no_damping(self):
         # spread_baseline=0 -> no damping applied
@@ -153,10 +143,10 @@ class TestKellyEdgeCases:
         r2 = fractional_kelly(0.65, 0.50, 1000, ensemble_spread=0.0)
         assert abs(r1.bet_size - r2.bet_size) < 1e-9
 
-
     def test_infinite_kelly_fraction_returns_zero(self):
         # market_price near 0 -> win_odds huge -> f_full may be inf
         import math
+
         result = fractional_kelly(0.9999, 0.0001, 1000)
         assert result.bet_size == 0.0 or math.isfinite(result.bet_size)
 
@@ -168,5 +158,6 @@ class TestKellyEdgeCases:
     def test_infinite_kelly_via_extreme_odds(self):
         # market_price very small -> win_odds huge -> bet capped
         import math
+
         result = fractional_kelly(0.9999, 0.0001, 1000, max_bet=50.0)
         assert math.isfinite(result.bet_size)

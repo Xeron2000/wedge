@@ -14,9 +14,7 @@ log = get_logger("execution.dry_run")
 
 
 class DryRunExecutor:
-    def __init__(
-        self, db: Database, initial_balance: float, max_bet: float = 100.0
-    ) -> None:
+    def __init__(self, db: Database, initial_balance: float, max_bet: float = 100.0) -> None:
         self._db = db
         self._balance = initial_balance
         self._max_bet = max_bet
@@ -52,7 +50,11 @@ class DryRunExecutor:
         )
 
         if not inserted:
-            log.info("dry_run_duplicate_skipped", run_id=request.run_id, temp_value=request.temp_value)
+            log.info(
+                "dry_run_duplicate_skipped",
+                run_id=request.run_id,
+                temp_value=request.temp_value,
+            )
             return OrderResult(success=True, order_id=order_id, error="duplicate")
 
         self._balance -= request.size
@@ -110,9 +112,7 @@ class DryRunExecutor:
         if not self._positions_loaded:
             await self._load_positions_from_db()
 
-        market_map = {
-            (m.city, m.date, m.temp_value): m.market_price for m in markets
-        }
+        market_map = {(m.city, m.date, m.temp_value): m.market_price for m in markets}
 
         for pos in self._positions:
             key = (pos.bucket.city, pos.bucket.date, pos.bucket.temp_value)
@@ -128,7 +128,7 @@ class DryRunExecutor:
         temp_f: float,
         exit_price: float,
         exit_reason: str,
-        db: "Database",
+        db: Database,
     ) -> float:
         """Close a position at exit_price. Returns realized pnl."""
         if not self._positions_loaded:
@@ -221,7 +221,7 @@ class DryRunExecutor:
                             date=date_obj,
                             temp_value=pos_dict["temp_value"],
                             temp_unit=pos_dict.get("temp_unit", "F"),
-                            market_price=pos_dict["entry_price"],  # Will be updated by update_position_prices
+                            market_price=pos_dict["entry_price"],
                             implied_prob=pos_dict["entry_price"],
                         ),
                         size=pos_dict["size"],

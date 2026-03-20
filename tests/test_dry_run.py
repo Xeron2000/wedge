@@ -95,9 +95,16 @@ class TestDatabaseSettlement:
     async def test_settle_trades(self, db):
         await db.insert_run("run1", "2026-07-01T00:00:00")
         await db.insert_trade(
-            run_id="run1", city="NYC", date="2026-07-01",
-            temp_f=78, strategy="ladder", entry_price=0.20,
-            size=10.0, p_model=0.25, p_market=0.20, edge=0.05,
+            run_id="run1",
+            city="NYC",
+            date="2026-07-01",
+            temp_f=78,
+            strategy="ladder",
+            entry_price=0.20,
+            size=10.0,
+            p_model=0.25,
+            p_market=0.20,
+            edge=0.05,
             created_at="2026-07-01T00:00:00",
         )
         count = await db.settle_trades("NYC", "2026-07-01", actual_temp=78)
@@ -107,9 +114,16 @@ class TestDatabaseSettlement:
     async def test_settle_losing_trade(self, db):
         await db.insert_run("run2", "2026-07-01T00:00:00")
         await db.insert_trade(
-            run_id="run2", city="NYC", date="2026-07-01",
-            temp_f=78, strategy="ladder", entry_price=0.20,
-            size=10.0, p_model=0.25, p_market=0.20, edge=0.05,
+            run_id="run2",
+            city="NYC",
+            date="2026-07-01",
+            temp_f=78,
+            strategy="ladder",
+            entry_price=0.20,
+            size=10.0,
+            p_model=0.25,
+            p_market=0.20,
+            edge=0.05,
             created_at="2026-07-01T00:00:00",
         )
         count = await db.settle_trades("NYC", "2026-07-01", actual_temp=80)

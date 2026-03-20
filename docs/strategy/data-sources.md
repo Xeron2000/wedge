@@ -1,71 +1,75 @@
-# Data Sources
+# 数据源说明
 
-## Primary: Open-Meteo Ensemble API
+## 主预测源：NOAA NOMADS GEFS
 
-免费，无需 API key，支持 GFS 51 成员集合预报。
+Wedge 现在使用 **direct NOAA GEFS ensemble data** 作为主预测源。
+机器人会从 NOAA NOMADS 抓取 GEFS member GRIB 文件，在与机场对齐的坐标上提取 2m 温度，并基于 ensemble members 构造某个本地自然日的最高温分布。
 
-### Endpoint
-```
-GET https://ensemble-api.open-meteo.com/v1/ensemble
-```
+### 端点模式
 
-### Parameters
-| Param | Value | Notes |
-|-------|-------|-------|
-| latitude | 40.7128 | 城市坐标 |
-| longitude | -74.0060 | |
-| daily | temperature_2m_max | 日最高温 |
-| models | gfs_seamless | GFS 集合 |
-| forecast_days | 7 | 预报天数 |
-| temperature_unit | fahrenheit | Kalshi/Polymarket 用°F |
-
-### Response Structure
-```json
-{
-  "daily": {
-    "temperature_2m_max_member01": [78.2, 79.1, ...],
-    "temperature_2m_max_member02": [77.8, 80.3, ...],
-    ...
-    "temperature_2m_max_member31": [79.5, 78.7, ...]
-  }
-}
+```text
+https://nomads.ncep.noaa.gov/cgi-bin/filter_gefs_atmos_0p25s.pl
 ```
 
-### Update Frequency
-- GFS 00Z → ~04:00 UTC available
-- GFS 06Z → ~10:00 UTC available
-- GFS 12Z → ~16:00 UTC available
-- GFS 18Z → ~22:00 UTC available
+### Wedge 实际拉取的内容
 
-## Trading Platform: Polymarket
+- 数据集：`gefs_atmos_0p25s`
+- 变量：`TMP`
+- 层级：`2 m above ground`
+- Members：`c00`, `p01` ... `p30`
+- 预报步长：3 小时
+- Wedge 最终使用的结果：**每个 member 的本地日最高温（°F）**
 
-### API: py-clob-client
+### 为什么要 direct NOAA
+
+- 去掉 Open-Meteo 这层中间包装
+- 让策略与 thesis 保持一致：**直接吃 GEFS 的 repricing edge**
+- 完全掌控 cycle 选择、member 处理与 daily-max 构造逻辑
+
+### 更新时间窗口
+
+GEFS 运行时间：
+
+- 00Z
+- 06Z
+- 12Z
+- 18Z
+
+Wedge 会在这些 cycle 理论上已经出现在 NOMADS 之后的时间点调度扫描。
+
+## 结算观测源：Open-Meteo Archive
+
+Wedge 仍然使用 Open-Meteo Archive 获取结算时所需的历史观测日最高温。
+这属于结算便利性，不属于策略 edge 本身。
+
+## 交易平台：Polymarket
+
+### Client
+
+```text
+py-clob-client
 ```
-pip install py-clob-client
-```
 
-### Key Operations
-- 获取天气市场列表
-- 获取订单簿（bid/ask）
-- 创建限价单
-- 查询持仓
+### 关键能力
 
-### Authentication
-- Ethereum 私钥签名
-- API Key + Secret
+- 发现天气市场
+- 读取 bucket 当前价格
+- 下限价单
+- 跟踪持仓
 
-## Cities (KXHIGH aligned)
+## 城市坐标
 
-| City | Lat | Lon |
-|------|-----|-----|
-| New York | 40.7128 | -74.0060 |
-| Chicago | 41.8781 | -87.6298 |
-| Miami | 25.7617 | -80.1918 |
-| Los Angeles | 34.0522 | -118.2437 |
-| Denver | 39.7392 | -104.9903 |
+城市坐标必须与 Polymarket 结算依赖的机场/气象站尽量一致。
+机场坐标比 city center 更重要。
 
-## Cross-Validation (Future)
+当前默认城市定义见 `src/wedge/config.py`。
 
-- ECMWF IFS：最准，9km 分辨率，需付费
-- HRRR：美国短期，3km，适合 1-2 天预报
-- 可作为 edge 增强，不在 MVP 范围
+## 明确不再属于主架构的内容
+
+以下内容已经不再属于当前主产品设计：
+
+- Open-Meteo ensemble 作为主预测源
+- Tail 策略 runtime
+- Cross-bucket arbitrage runtime
+- Telegram runtime
+- Live decision loop 中的在线 calibration

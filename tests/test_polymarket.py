@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,8 +20,17 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_connect_success(self):
         mock_clob = MagicMock()
-        with patch.dict("sys.modules", {"py_clob_client": MagicMock(), "py_clob_client.client": MagicMock()}):
-            with patch("wedge.market.polymarket.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+        with patch.dict(
+            "sys.modules",
+            {
+                "py_clob_client": MagicMock(),
+                "py_clob_client.client": MagicMock(),
+            },
+        ):
+            with patch(
+                "wedge.market.polymarket.asyncio.to_thread",
+                new_callable=AsyncMock,
+            ) as mock_thread:
                 mock_thread.return_value = mock_clob
                 c = PolymarketClient("pk", "ak", "as")
                 await c.connect()
@@ -35,6 +43,7 @@ class TestConnect:
         async def fake_to_thread(fn, *args, **kwargs):
             # Run the inner function in a context where import fails
             import builtins
+
             real_import = builtins.__import__
 
             def fail_import(name, *a, **kw):
@@ -59,10 +68,13 @@ class TestConnect:
         async def fake_to_thread(fn, *args, **kwargs):
             mock_module = MagicMock()
             mock_module.ClobClient.side_effect = RuntimeError("boom")
-            with patch.dict("sys.modules", {
-                "py_clob_client": MagicMock(),
-                "py_clob_client.client": mock_module,
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "py_clob_client": MagicMock(),
+                    "py_clob_client.client": mock_module,
+                },
+            ):
                 return fn()
 
         with patch("wedge.market.polymarket.asyncio.to_thread", side_effect=fake_to_thread):
@@ -84,8 +96,15 @@ class TestGetMarkets:
         mock_client.get_markets.return_value = [{"id": "m1"}]
         c._client = mock_client
 
-        with patch("wedge.market.polymarket.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.side_effect = lambda fn, *a, **kw: asyncio.coroutine(lambda: fn())()
+        with patch(
+            "wedge.market.polymarket.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_thread:
+            async def run_fn(fn, *a, **kw):
+                return fn()
+
+            mock_thread.side_effect = run_fn
+            result = await c.get_markets()
 
             async def run_fn(fn, *a, **kw):
                 return fn()
@@ -165,7 +184,9 @@ class TestPlaceLimitOrder:
         with patch("wedge.market.polymarket.asyncio.to_thread", side_effect=run_fn):
             result = await c.place_limit_order("tok_1", "buy", 0.5, 10.0)
         assert result == {"id": "order_123"}
-        mock_client.create_order.assert_called_once_with(token_id="tok_1", price=0.5, size=10.0, side="buy")
+        mock_client.create_order.assert_called_once_with(
+            token_id="tok_1", price=0.5, size=10.0, side="buy"
+        )
 
     @pytest.mark.asyncio
     async def test_exception_returns_none(self):

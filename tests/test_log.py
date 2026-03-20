@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 import structlog
 
 from wedge.log import _sanitize_processor, get_logger, setup_logging

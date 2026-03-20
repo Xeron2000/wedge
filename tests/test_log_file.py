@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
 
 import pytest
 import structlog
 
-from wedge.log import setup_logging, get_logger
+from wedge.log import get_logger, setup_logging
 
 
 @pytest.fixture(autouse=True)
@@ -82,8 +81,12 @@ class TestSetupLoggingFileOutput:
         for h in logging.getLogger().handlers:
             h.flush()
 
-        lines = [json.loads(l) for l in log_file.read_text().strip().splitlines() if l.strip()]
-        levels = {l["level"] for l in lines}
+        lines = [
+            json.loads(line_text)
+            for line_text in log_file.read_text().strip().splitlines()
+            if line_text.strip()
+        ]
+        levels = {line["level"] for line in lines}
         assert {"debug", "info", "warning", "error"}.issubset(levels)
 
     def test_no_log_file_console_only(self, tmp_path: Path, capsys):
@@ -101,7 +104,8 @@ class TestSetupLoggingFileOutput:
         setup_logging(log_file=log_file)
 
         file_handlers = [
-            h for h in logging.getLogger().handlers
+            h
+            for h in logging.getLogger().handlers
             if isinstance(h, logging.handlers.TimedRotatingFileHandler)
         ]
         assert len(file_handlers) == 1

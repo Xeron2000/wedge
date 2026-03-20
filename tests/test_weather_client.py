@@ -73,9 +73,7 @@ class TestFetchActualTemperature:
     @pytest.mark.asyncio
     async def test_api_failure_returns_none(self):
         client = AsyncMock(spec=httpx.AsyncClient)
-        client.get = AsyncMock(
-            side_effect=httpx.ConnectError("connection refused")
-        )
+        client.get = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
 
         result = await fetch_actual_temperature(client, NYC, "2026-07-01")
         assert result is None
@@ -95,7 +93,9 @@ class TestFetchActualTemperature:
         client = AsyncMock(spec=httpx.AsyncClient)
         client.get = AsyncMock(
             side_effect=[
-                httpx.HTTPStatusError("503", request=httpx.Request("GET", "x"), response=error_response),
+                httpx.HTTPStatusError(
+                    "503", request=httpx.Request("GET", "x"), response=error_response
+                ),
                 ok_response,
             ]
         )

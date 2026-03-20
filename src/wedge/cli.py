@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import typer
-
-from pathlib import Path
 
 from wedge.config import Settings
 from wedge.config_manager import app as config_app
@@ -21,8 +20,6 @@ def run(
     max_bet: float = typer.Option(None, "--max-bet", help="Max bet per trade"),
     kelly: float = typer.Option(None, "--kelly", help="Kelly fraction (0-1)"),
     ladder_edge: float = typer.Option(None, "--ladder-edge", help="Ladder edge threshold"),
-    tail_edge: float = typer.Option(None, "--tail-edge", help="Tail edge threshold"),
-    telegram: bool = typer.Option(False, "--telegram", help="Enable Telegram bot"),
 ) -> None:
     """Start the 7x24 trading bot."""
     overrides = {
@@ -36,17 +33,16 @@ def run(
         overrides["kelly_fraction"] = kelly
     if ladder_edge is not None:
         overrides["ladder_edge"] = ladder_edge
-    if tail_edge is not None:
-        overrides["tail_edge"] = tail_edge
 
     settings = Settings.load(**overrides)
-    from datetime import datetime
-    _log_file = Path(settings.log_dir) / f"wedge-{datetime.utcnow().strftime('%Y-%m-%d')}.log"
+    from datetime import UTC, datetime
+
+    _log_file = Path(settings.log_dir) / f"wedge-{datetime.now(UTC).strftime('%Y-%m-%d')}.log"
     setup_logging(log_file=_log_file)
 
     from wedge.scheduler import run_scheduler
 
-    asyncio.run(run_scheduler(settings, enable_telegram=telegram))
+    asyncio.run(run_scheduler(settings))
 
 
 @app.command()
@@ -90,19 +86,6 @@ def backtest(
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=days)
     asyncio.run(run_backtest(settings, start_date, end_date))
-
-
-@app.command()
-def calibration(
-    days: int = typer.Option(30, "--days", "-d", help="Number of days to analyze"),
-) -> None:
-    """Validate model calibration against actual outcomes."""
-    settings = Settings.load()
-    setup_logging()
-
-    from wedge.backtest import validate_model_calibration
-
-    asyncio.run(validate_model_calibration(settings, days))
 
 
 if __name__ == "__main__":  # pragma: no cover

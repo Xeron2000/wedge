@@ -9,7 +9,7 @@ Provides:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from wedge.execution.models import PortfolioPnL, PositionPnL
@@ -22,6 +22,7 @@ log = get_logger("execution.pnl")
 @dataclass
 class PnLSnapshot:
     """Point-in-time P&L snapshot."""
+
     timestamp: datetime
     realized_pnl: float
     unrealized_pnl: float
@@ -85,7 +86,7 @@ class PnLTracker:
             target_date: Target date (ISO format)
             temp_value: Temperature value (same unit as market)
             temp_unit: "F" or "C"
-            strategy: "ladder" or "tail"
+            strategy: position strategy label
             entry_price: Entry price (0-1)
             size: USD amount invested
         """
@@ -97,14 +98,16 @@ class PnLTracker:
         position = PositionPnL(
             token_id=token_id,
             city=city,
-            target_date=date.fromisoformat(target_date) if isinstance(target_date, str) else target_date,
+            target_date=(
+                date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
+            ),
             temp_value=temp_value,
             temp_unit=temp_unit,
             strategy=strategy,
             entry_price=entry_price,
             entry_size=size,
             shares=shares,
-            current_price=entry_price,  # Start at entry price
+            current_price=entry_price,
         )
 
         self._portfolio.add_position(position)
@@ -214,18 +217,20 @@ class PnLTracker:
         """Get summary of all open positions."""
         positions = []
         for pos in self._portfolio.positions.values():
-            positions.append({
-                "token_id": pos.token_id,
-                "city": pos.city,
-                "target_date": str(pos.target_date),
-                "temp_value": pos.temp_value,
-                "temp_unit": pos.temp_unit,
-                "strategy": pos.strategy,
-                "entry_price": pos.entry_price,
-                "current_price": pos.current_price,
-                "unrealized_pnl": pos.unrealized_pnl,
-                "unrealized_pnl_pct": pos.unrealized_pnl_pct * 100,
-            })
+            positions.append(
+                {
+                    "token_id": pos.token_id,
+                    "city": pos.city,
+                    "target_date": str(pos.target_date),
+                    "temp_value": pos.temp_value,
+                    "temp_unit": pos.temp_unit,
+                    "strategy": pos.strategy,
+                    "entry_price": pos.entry_price,
+                    "current_price": pos.current_price,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "unrealized_pnl_pct": pos.unrealized_pnl_pct * 100,
+                }
+            )
         return positions
 
 
@@ -285,7 +290,7 @@ def calculate_sharpe_ratio(
 
     # Annualize
     annual_return = mean_return * 252  # Trading days
-    annual_std = std_return * (252 ** 0.5)
+    annual_std = std_return * (252**0.5)
 
     sharpe = (annual_return - risk_free_rate) / annual_std
     return sharpe
@@ -312,18 +317,22 @@ def calculate_sortino_ratio(
     mean_return = statistics.mean(daily_returns)
 
     # Calculate downside deviation (only negative returns)
-    negative_returns = [r for r in daily_returns if r < 0]
+    negative_returns = [daily_return for daily_return in daily_returns if daily_return < 0]
     if not negative_returns:
-        return float('inf')  # No downside = infinite Sortino
+        return float("inf")
 
-    downside_std = statistics.stdev(negative_returns) if len(negative_returns) > 1 else abs(negative_returns[0])
+    downside_std = (
+        statistics.stdev(negative_returns)
+        if len(negative_returns) > 1
+        else abs(negative_returns[0])
+    )
 
     if downside_std == 0:
         return 0.0
 
     # Annualize
     annual_return = mean_return * 252
-    annual_downside = downside_std * (252 ** 0.5)
+    annual_downside = downside_std * (252**0.5)
 
     sortino = (annual_return - risk_free_rate) / annual_downside
     return sortino

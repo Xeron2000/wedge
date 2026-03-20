@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -74,6 +74,7 @@ class TestPlaceOrder:
     @pytest.mark.asyncio
     async def test_duplicate_returns_success_with_duplicate_error(self, db, mock_client, executor):
         mock_client.place_limit_order.return_value = {"id": "order_abc"}
+        mock_client.get_order_status = AsyncMock(return_value={"state": "filled"})
         # First order succeeds and inserts into DB
         r1 = await executor.place_order(_order())
         assert r1.success
@@ -88,7 +89,7 @@ class TestPlaceOrder:
         # New executor tries maker first, then taker
         # Both need to fail for the order to fail
         mock_client.place_limit_order.return_value = None
-        mock_client.get_order_status.return_value = None  # Timeout
+        mock_client.get_order_status = AsyncMock(return_value=None)  # Timeout
         result = await executor.place_order(_order(temp_f=90))
         assert not result.success
         assert result.error is not None
@@ -98,7 +99,7 @@ class TestPlaceOrder:
         # New executor uses maker-taker strategy
         # Mock successful maker order
         mock_client.place_limit_order.return_value = {"id": "order_xyz"}
-        mock_client.get_order_status.return_value = {"state": "filled"}
+        mock_client.get_order_status = AsyncMock(return_value={"state": "filled"})
 
         result = await executor.place_order(_order(temp_f=80))
         assert result.success
@@ -151,6 +152,7 @@ class TestGetBalance:
     @pytest.mark.asyncio
     async def test_balance_decreases_after_order(self, mock_client, executor):
         mock_client.place_limit_order.return_value = {"id": "o1"}
+        mock_client.get_order_status = AsyncMock(return_value={"state": "filled"})
         await executor.place_order(_order(temp_f=85, size=25.0))
         balance = await executor.get_balance()
         assert balance == 975.0

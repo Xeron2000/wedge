@@ -1,7 +1,7 @@
 """Full coverage tests for wedge.pipeline."""
+
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,8 +14,8 @@ from wedge.market.models import MarketBucket, Position
 from wedge.strategy.models import EdgeSignal
 from wedge.weather.models import ForecastDistribution
 
-
 # ── fixtures ──────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 async def db(tmp_path):
@@ -95,26 +95,31 @@ def position(market_bucket, edge_signal):
 
 # ── _generate_synthetic_markets ────────────────────────────────────────────────
 
+
 class TestGenerateSyntheticMarkets:
     def test_returns_one_bucket_per_forecast_bucket(self, forecast):
         from wedge.pipeline import _generate_synthetic_markets
+
         markets = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         assert len(markets) == len(forecast.buckets)
 
     def test_token_id_format(self, forecast):
         from wedge.pipeline import _generate_synthetic_markets
+
         markets = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         for m in markets:
             assert m.token_id.startswith("syn_NYC_2026-03-20_")
 
     def test_market_price_clamped(self, forecast):
         from wedge.pipeline import _generate_synthetic_markets
+
         markets = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         for m in markets:
             assert 0.01 <= m.market_price <= 0.99
 
     def test_seeded_reproducible(self, forecast):
         from wedge.pipeline import _generate_synthetic_markets
+
         m1 = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         m2 = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         prices1 = [m.market_price for m in m1]
@@ -123,6 +128,7 @@ class TestGenerateSyntheticMarkets:
 
     def test_different_city_different_prices(self, forecast):
         from wedge.pipeline import _generate_synthetic_markets
+
         m_nyc = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         m_chi = _generate_synthetic_markets(forecast, "CHI", date(2026, 3, 20))
         prices_nyc = [m.market_price for m in m_nyc]
@@ -132,18 +138,21 @@ class TestGenerateSyntheticMarkets:
     def test_noise_within_bounds(self, forecast):
         """Market price deviates by noise in [-0.05, 0.03]; after clamp still valid."""
         from wedge.pipeline import _generate_synthetic_markets
+
         markets = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         for m in markets:
             assert 0.01 <= m.implied_prob <= 0.99
 
     def test_implied_prob_equals_market_price(self, forecast):
         from wedge.pipeline import _generate_synthetic_markets
+
         markets = _generate_synthetic_markets(forecast, "NYC", date(2026, 3, 20))
         for m in markets:
             assert m.implied_prob == m.market_price
 
 
 # ── _process_city ──────────────────────────────────────────────────────────────
+
 
 class TestProcessCity:
     """Tests for _process_city via mocked dependencies."""
@@ -155,9 +164,11 @@ class TestProcessCity:
 
     async def _call(self, db, settings, forecast, executor, city_cfg=None, **overrides):
         from wedge.pipeline import _process_city
+
         if city_cfg is None:
             city_cfg = CityConfig(name="NYC", lat=40.77, lon=-73.87, timezone="America/New_York")
         import httpx
+
         async with httpx.AsyncClient() as http_client:
             return await _process_city(
                 http_client=http_client,
@@ -168,7 +179,6 @@ class TestProcessCity:
                 target_date=date(2026, 3, 20),
                 run_id="testrun",
                 ladder_budget=700.0,
-                tail_budget=200.0,
                 **overrides,
             )
 
@@ -200,7 +210,6 @@ class TestProcessCity:
             patch("wedge.pipeline.parse_distribution", return_value=forecast),
             patch("wedge.pipeline.detect_edges", return_value=[MagicMock()]),
             patch("wedge.pipeline.evaluate_ladder", return_value=[position]),
-            patch("wedge.pipeline.evaluate_tail", return_value=[]),
         ):
             orders = await self._call(db, settings, forecast, executor)
         assert orders == 1
@@ -240,7 +249,6 @@ class TestProcessCity:
             patch("wedge.pipeline.parse_distribution", return_value=forecast),
             patch("wedge.pipeline.detect_edges", return_value=[MagicMock()]),
             patch("wedge.pipeline.evaluate_ladder", return_value=[position]),
-            patch("wedge.pipeline.evaluate_tail", return_value=[]),
         ):
             orders = await self._call(db, settings, forecast, executor)
         assert orders == 0
@@ -250,7 +258,14 @@ class TestProcessCity:
         settings = Settings(
             mode="live",
             bankroll=1000.0,
-            cities=[CityConfig(name="NYC", lat=40.77, lon=-73.87, timezone="America/New_York")],
+            cities=[
+                CityConfig(
+                    name="NYC",
+                    lat=40.77,
+                    lon=-73.87,
+                    timezone="America/New_York",
+                )
+            ],
         )
         executor = self._make_executor()
         poly_client = MagicMock()
@@ -258,12 +273,17 @@ class TestProcessCity:
         with (
             patch("wedge.pipeline.fetch_ensemble", return_value=raw),
             patch("wedge.pipeline.parse_distribution", return_value=forecast),
-            patch("wedge.pipeline.scan_weather_markets", new_callable=AsyncMock, return_value=[MagicMock()]),
+            patch(
+                "wedge.pipeline.scan_weather_markets",
+                new_callable=AsyncMock,
+                return_value=[MagicMock()],
+            ),
             patch("wedge.pipeline.detect_edges", return_value=[MagicMock()]),
             patch("wedge.pipeline.evaluate_ladder", return_value=[position]),
-            patch("wedge.pipeline.evaluate_tail", return_value=[]),
         ):
-            orders = await self._call(db, settings, forecast, executor, poly_client=poly_client)
+            orders = await self._call(
+                db, settings, forecast, executor, poly_client=poly_client
+            )
         assert orders == 1
 
     @pytest.mark.asyncio
@@ -300,20 +320,24 @@ class TestProcessCity:
     @pytest.mark.asyncio
     async def test_multiple_positions_all_counted(self, db, settings, forecast, position):
         executor = self._make_executor(success=True)
-        pos2 = position.model_copy(update={"strategy": "tail"})
+        pos2 = position.model_copy(
+            update={
+                "bucket": position.bucket.model_copy(update={"temp_value": 74, "token_id": "tok74"})
+            }
+        )
         raw = {"some": "data"}
         with (
             patch("wedge.pipeline.fetch_ensemble", return_value=raw),
             patch("wedge.pipeline.parse_distribution", return_value=forecast),
             patch("wedge.pipeline.detect_edges", return_value=[MagicMock()]),
-            patch("wedge.pipeline.evaluate_ladder", return_value=[position]),
-            patch("wedge.pipeline.evaluate_tail", return_value=[pos2]),
+            patch("wedge.pipeline.evaluate_ladder", return_value=[position, pos2]),
         ):
             orders = await self._call(db, settings, forecast, executor)
         assert orders == 2
 
 
 # ── run_pipeline ───────────────────────────────────────────────────────────────
+
 
 class TestRunPipeline:
     @pytest.mark.asyncio
@@ -322,15 +346,15 @@ class TestRunPipeline:
 
         with (
             patch("wedge.pipeline._process_city", new_callable=AsyncMock, return_value=0),
-            patch("wedge.pipeline.DryRunExecutor") as MockExec,
+            patch("wedge.pipeline.DryRunExecutor") as mock_exec_cls,
         ):
             mock_exec_instance = AsyncMock()
             mock_exec_instance.get_balance.return_value = 1000.0
             mock_exec_instance.get_unrealized_pnl.return_value = 0.0
-            MockExec.return_value = mock_exec_instance
+            mock_exec_cls.return_value = mock_exec_instance
             await run_pipeline(settings, db)
 
-        MockExec.assert_called_once()
+        mock_exec_cls.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_live_mode_creates_live_executor(self, db, tmp_path):
@@ -460,6 +484,7 @@ class TestRunPipeline:
 
 # ── run_single_scan ────────────────────────────────────────────────────────────
 
+
 class TestRunSingleScan:
     @pytest.mark.asyncio
     async def test_invalid_city_returns_early(self, settings):
@@ -533,8 +558,8 @@ class TestRunSingleScan:
             await run_single_scan(settings, "NYC")
 
         assert len(captured_dates) == 1
-        from datetime import timedelta
         from zoneinfo import ZoneInfo
+
         tz = ZoneInfo("America/New_York")
         expected = (datetime.now(tz) + timedelta(days=3)).date()
         assert captured_dates[0] == expected

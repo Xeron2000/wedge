@@ -17,12 +17,25 @@ _DATE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _WEEK_PATTERN = re.compile(r"week(?:ly)?", re.IGNORECASE)
-_MONTH_PATTERN = re.compile(r"month(?:ly)?|in\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)", re.IGNORECASE)
+_MONTH_PATTERN = re.compile(
+    r"month(?:ly)?|in\s+(?:january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)",
+    re.IGNORECASE,
+ )
 
 _MONTH_MAP = {
-    "january": 1, "february": 2, "march": 3, "april": 4,
-    "may": 5, "june": 6, "july": 7, "august": 8,
-    "september": 9, "october": 10, "november": 11, "december": 12,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
 }
 _CITY_ALIASES = {
     "new york": "NYC",
@@ -152,21 +165,18 @@ async def scan_weather_markets(
     # Weekly contract: find week containing target_date
     if include_weekly:
         week_start = target_date - timedelta(days=target_date.weekday())  # Monday
-        week_end = week_start + timedelta(days=6)  # Sunday
         slugs.append(
             f"highest-temperature-in-{city_slug}-week-of-{week_start.strftime('%B').lower()}-{week_start.day}-{year}"
         )
 
     # Monthly contract
     if include_monthly:
-        slugs.append(
-            f"highest-temperature-in-{city_slug}-in-{month_name}-{year}"
-        )
+        slugs.append(f"highest-temperature-in-{city_slug}-in-{month_name}-{year}")
 
     # Fetch all events
     events = []
     for slug in slugs:
-        if hasattr(client, 'get_event_by_slug'):
+        if hasattr(client, "get_event_by_slug"):
             event = await client.get_event_by_slug(slug)
             if event:
                 events.append(event)
@@ -287,7 +297,11 @@ async def scan_weather_markets(
                     )
                 )
             except Exception as e:
-                log.warning("market_parse_error", market=market.get("question", "unknown"), error=str(e))
+                log.warning(
+                    "market_parse_error",
+                    market=market.get("question", "unknown"),
+                    error=str(e),
+                )
                 continue
 
     log.info(

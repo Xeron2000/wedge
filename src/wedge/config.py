@@ -59,9 +59,27 @@ DEFAULT_CITIES = [
     CityConfig(name="Seoul", lat=37.4602, lon=126.4407, timezone="Asia/Seoul", station="RKSI"),
     CityConfig(name="London", lat=51.4700, lon=-0.4543, timezone="Europe/London", station="EGLL"),
     CityConfig(name="NYC", lat=40.7772, lon=-73.8726, timezone="America/New_York", station="KLGA"),
-    CityConfig(name="Shanghai", lat=31.1434, lon=121.8052, timezone="Asia/Shanghai", station="ZSSS"),
-    CityConfig(name="Miami", lat=25.7959, lon=-80.2870, timezone="America/New_York", station="KMIA"),
-    CityConfig(name="Wellington", lat=-41.3272, lon=174.8050, timezone="Pacific/Auckland", station="NZWN"),
+    CityConfig(
+        name="Shanghai",
+        lat=31.1434,
+        lon=121.8052,
+        timezone="Asia/Shanghai",
+        station="ZSSS",
+    ),
+    CityConfig(
+        name="Miami",
+        lat=25.7959,
+        lon=-80.2870,
+        timezone="America/New_York",
+        station="KMIA",
+    ),
+    CityConfig(
+        name="Wellington",
+        lat=-41.3272,
+        lon=174.8050,
+        timezone="Pacific/Auckland",
+        station="NZWN",
+    ),
 ]
 
 
@@ -70,6 +88,7 @@ class Settings(BaseSettings):
         env_prefix="WEDGE_",
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     mode: str = "dry_run"
@@ -82,31 +101,17 @@ class Settings(BaseSettings):
 
     # Ladder strategy
     ladder_edge: float = 0.08
-    ladder_alloc: float = 0.70
+    ladder_alloc: float = 0.90
 
-    # Tail strategy
-    tail_edge: float = 0.12
-    tail_odds: float = 10.0
-    tail_alloc: float = 0.20
-    tail_max_correlated: int = 2  # Max positions per climate region
-    daily_loss_limit: float = 200.0  # Stop trading if daily loss exceeds this
-
-    # Fee and slippage configuration
+    # Fees and execution
     fee_rate: float = 0.02  # Polymarket 2% fee on winnings
-    slippage_model: str = "volume_based"  # volume_based or fixed
-
-    # Risk management
-    arb_min_price: float = 0.05  # Skip arb buckets with market price below this threshold
 
     # Exit strategy (probability-based)
-    exit_loss_factor: float = 0.5    # Stop-loss: exit when p_model < entry_price * this factor
-    exit_min_ev: float = 0.0         # Take-profit: exit when EV drops to or below this value
-    exit_min_hours_to_settle: int = 12  # Don't exit within this many hours of settlement
-    brier_threshold: float = 0.25  # Pause trading if weekly Brier score exceeds this
-    brier_decomposition: bool = True  # Track Brier reliability/resolution
-    min_city_brier_score: float = 0.22  # Skip city if 30-day Brier score exceeds this
-    min_city_samples: int = 5  # Min settled trades before applying city filter
-    spread_baseline_f: float = 3.0  # Ensemble spread baseline (°F) for Kelly damping
+    exit_loss_factor: float = 0.5
+    exit_min_ev: float = 0.0
+    exit_min_hours_to_settle: int = 12
+    brier_threshold: float = 0.25
+    spread_baseline_f: float = 3.0
 
     offsets_utc: list[str] = Field(
         default_factory=lambda: ["03:45", "09:45", "15:45", "21:45"]
@@ -119,9 +124,6 @@ class Settings(BaseSettings):
     polymarket_private_key: str = ""
     polymarket_api_key: str = ""
     polymarket_api_secret: str = ""
-
-    telegram_token: str = ""
-    telegram_chat_id: str = ""
 
     @classmethod
     def load(cls, **overrides: Any) -> Settings:

@@ -1,8 +1,10 @@
 """Test position deduplication across pipeline runs."""
+
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 import pytest
-from datetime import date, datetime, UTC
 
 from wedge.db import Database
 from wedge.execution.dry_run import DryRunExecutor

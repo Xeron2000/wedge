@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
 import typer
@@ -37,13 +35,17 @@ def init(force: bool = typer.Option(False, "--force", help="Overwrite existing c
         "bankroll": 1000.0,
         "max_bet": 100.0,
         "kelly_fraction": 0.15,
-        "ladder_edge": 0.05,
-        "tail_edge": 0.08,
+        "ladder_edge": 0.08,
+        "ladder_alloc": 0.90,
+        "fee_rate": 0.02,
+        "exit_loss_factor": 0.5,
+        "exit_min_ev": 0.0,
+        "exit_min_hours_to_settle": 12,
+        "brier_threshold": 0.25,
+        "spread_baseline_f": 3.0,
         "polymarket_private_key": "",
         "polymarket_api_key": "",
         "polymarket_api_secret": "",
-        "telegram_token": "",
-        "telegram_chat_id": "",
     }
 
     _write_config(default_config)

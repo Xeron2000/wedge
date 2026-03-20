@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
+
+from wedge.log import get_logger
+
+log = get_logger("db")
 
 _SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -57,35 +62,10 @@ CREATE TABLE IF NOT EXISTS bankroll_snapshots (
     created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS arbitrage_opportunities (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL REFERENCES runs(id),
-    city TEXT NOT NULL,
-    date TEXT NOT NULL,
-    bucket_count INTEGER NOT NULL,
-    price_sum REAL NOT NULL,
-    gap REAL NOT NULL,
-    token_ids TEXT NOT NULL,  -- JSON array
-    acted_on INTEGER DEFAULT 0,  -- 1 if orders were placed
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS city_performance (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city TEXT NOT NULL,
-    window_days INTEGER NOT NULL DEFAULT 30,
-    brier_score REAL NOT NULL,
-    sample_count INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    UNIQUE(city, window_days)
-);
-
 CREATE INDEX IF NOT EXISTS idx_trades_run ON trades(run_id);
 CREATE INDEX IF NOT EXISTS idx_trades_city_date ON trades(city, date);
 CREATE INDEX IF NOT EXISTS idx_forecasts_city_date ON forecasts(city, date);
 CREATE INDEX IF NOT EXISTS idx_trades_settled ON trades(settled);
-CREATE INDEX IF NOT EXISTS idx_arb_city_date ON arbitrage_opportunities(city, date);
-CREATE INDEX IF NOT EXISTS idx_city_perf_city ON city_performance(city);
 """
 
 
@@ -146,7 +126,7 @@ class Database:
         city: str,
         date: str,
         temp_f: int,
-        temp_unit: str = 'F',
+        temp_unit: str = "F",
         strategy: str,
         entry_price: float,
         size: float,
@@ -164,8 +144,22 @@ class Database:
                    (run_id, city, date, temp_f, temp_unit, strategy, entry_price, size,
                     p_model, p_market, edge, token_id, order_id, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (run_id, city, date, temp_f, temp_unit, strategy, entry_price, size,
-                 p_model, p_market, edge, token_id, order_id, created_at),
+                (
+                    run_id,
+                    city,
+                    date,
+                    temp_f,
+                    temp_unit,
+                    strategy,
+                    entry_price,
+                    size,
+                    p_model,
+                    p_market,
+                    edge,
+                    token_id,
+                    order_id,
+                    created_at,
+                ),
             )
             await self.conn.commit()
             return True
@@ -245,7 +239,7 @@ class Database:
 
             # Apply fee on profits only
             if pnl > 0:
-                pnl *= (1.0 - fee_rate)
+                pnl *= 1.0 - fee_rate
 
             # Note: fee_applied column may not exist in older databases
             # Use separate UPDATE for backward compatibility
@@ -336,13 +330,15 @@ class Database:
                 price_diff = abs(local_pos["entry_price"] - remote_pos.get("entry_price", 0))
 
                 if size_diff > 0.01 or price_diff > 0.001:
-                    discrepancies.append({
-                        "key": key,
-                        "local": local_pos,
-                        "remote": remote_pos,
-                        "size_diff": size_diff,
-                        "price_diff": price_diff,
-                    })
+                    discrepancies.append(
+                        {
+                            "key": key,
+                            "local": local_pos,
+                            "remote": remote_pos,
+                            "size_diff": size_diff,
+                            "price_diff": price_diff,
+                        }
+                    )
                 else:
                     matched.append(local_pos)
 
@@ -449,7 +445,7 @@ class Database:
         exit_price: float,
         exit_reason: str,
     ) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.execute(
             """
             UPDATE trades
@@ -488,68 +484,3 @@ class Database:
         )
         row = await cursor.fetchone()
         return row[0] > 0 if row else False
-
-    async def record_arbitrage(
-        self,
-        run_id: str,
-        city: str,
-        date: str,
-        bucket_count: int,
-        price_sum: float,
-        gap: float,
-        token_ids: list[str],
-        acted_on: bool = False,
-    ) -> int:
-        """Record a detected arbitrage opportunity."""
-        import json
-        from datetime import datetime, timezone
-        cursor = await self.conn.execute(
-            """INSERT INTO arbitrage_opportunities
-               (run_id, city, date, bucket_count, price_sum, gap, token_ids, acted_on, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                run_id, city, date, bucket_count,
-                price_sum, gap, json.dumps(token_ids),
-                1 if acted_on else 0,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        await self.conn.commit()
-        return cursor.lastrowid
-
-    async def update_city_performance(
-        self,
-        city: str,
-        brier_score: float,
-        sample_count: int,
-        window_days: int = 30,
-    ) -> None:
-        """Upsert city forecast performance metrics."""
-        from datetime import datetime, timezone
-        await self.conn.execute(
-            """INSERT INTO city_performance (city, window_days, brier_score, sample_count, updated_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(city, window_days) DO UPDATE SET
-                   brier_score=excluded.brier_score,
-                   sample_count=excluded.sample_count,
-                   updated_at=excluded.updated_at""",
-            (city, window_days, brier_score, sample_count, datetime.now(timezone.utc).isoformat()),
-        )
-        await self.conn.commit()
-
-    async def get_city_performance(self, city: str, window_days: int = 30) -> float | None:
-        """Get brier score for a specific city. Returns None if no data."""
-        cursor = await self.conn.execute(
-            "SELECT brier_score FROM city_performance WHERE city=? AND window_days=?",
-            (city, window_days),
-        )
-        row = await cursor.fetchone()
-        return row[0] if row else None
-
-    async def get_all_city_performance(self, window_days: int = 30) -> dict[str, float]:
-        """Get brier scores for all cities. Returns {city: brier_score}."""
-        cursor = await self.conn.execute(
-            "SELECT city, brier_score FROM city_performance WHERE window_days=?",
-            (window_days,),
-        )
-        return {row[0]: row[1] for row in await cursor.fetchall()}

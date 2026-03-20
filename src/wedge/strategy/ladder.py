@@ -10,8 +10,8 @@ def evaluate_ladder(
     budget: float,
     edge_threshold: float = 0.05,
     kelly_fraction: float = 0.10,  # Reduced from 0.15
-    max_bet: float = 50.0,         # Reduced from 100
-    max_bet_pct: float = 0.03,     # Reduced from 0.05
+    max_bet: float = 50.0,  # Reduced from 100
+    max_bet_pct: float = 0.03,  # Reduced from 0.05
     spread_baseline: float = 3.0,  # Ensemble spread baseline (°F) for Kelly damping
 ) -> list[Position]:
     """Select ladder positions: center-region buckets with range edge > threshold."""

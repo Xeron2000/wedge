@@ -14,7 +14,7 @@ class OrderRequest(BaseModel):
     date: date
     temp_value: int  # Temperature value (same unit as market)
     temp_unit: str  # "F" or "C"
-    strategy: Literal["ladder", "tail", "arbitrage"]
+    strategy: Literal["ladder"]
     side: Literal["buy"] = "buy"
     limit_price: float
     size: float  # USD amount
@@ -34,6 +34,7 @@ class OrderResult(BaseModel):
 @dataclass
 class PositionPnL:
     """Real-time P&L for a single position."""
+
     token_id: str
     city: str
     target_date: date
@@ -53,19 +54,24 @@ class PositionPnL:
         # Current value = shares * current_price
         current_value = self.shares * self.current_price
         self.unrealized_pnl = current_value - self.entry_size
-        self.unrealized_pnl_pct = self.unrealized_pnl / self.entry_size if self.entry_size > 0 else 0.0
+        self.unrealized_pnl_pct = (
+            self.unrealized_pnl / self.entry_size if self.entry_size > 0 else 0.0
+        )
 
     def update_price(self, price: float) -> None:
         """Update current price and recalculate P&L."""
         self.current_price = price
         current_value = self.shares * self.current_price
         self.unrealized_pnl = current_value - self.entry_size
-        self.unrealized_pnl_pct = self.unrealized_pnl / self.entry_size if self.entry_size > 0 else 0.0
+        self.unrealized_pnl_pct = (
+            self.unrealized_pnl / self.entry_size if self.entry_size > 0 else 0.0
+        )
 
 
 @dataclass
 class PortfolioPnL:
     """Real-time portfolio P&L tracking."""
+
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
     total_pnl: float = 0.0

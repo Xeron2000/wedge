@@ -8,14 +8,10 @@ from pathlib import Path
 
 import structlog
 
-_SECRET_PATTERN = re.compile(
-    r"(private_key|api_key|api_secret|^password$|^secret$)", re.IGNORECASE
-)
+_SECRET_PATTERN = re.compile(r"(private_key|api_key|api_secret|^password$|^secret$)", re.IGNORECASE)
 
 
-def _sanitize_processor(
-    _logger: object, _method: str, event_dict: dict
-) -> dict:
+def _sanitize_processor(_logger: object, _method: str, event_dict: dict) -> dict:
     for key in list(event_dict):
         if _SECRET_PATTERN.search(key):
             event_dict[key] = "***REDACTED***"
@@ -66,19 +62,11 @@ def setup_logging(
         root_logger.addHandler(file_handler)
         root_logger.setLevel(logging.DEBUG)
 
-        # Processors for file output (always JSON)
-        file_processors = shared_processors + [
-            structlog.processors.JSONRenderer(),
-        ]
-
-        # Processors for console output
-        console_processors = shared_processors + [
-            structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer(),
-        ]
 
         # Use stdlib integration so structlog routes to both stdout and file
         structlog.configure(
-            processors=shared_processors + [
+            processors=shared_processors
+            + [
                 structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
             ],
             wrapper_class=structlog.make_filtering_bound_logger(0),
@@ -92,7 +80,11 @@ def setup_logging(
         console_formatter = structlog.stdlib.ProcessorFormatter(
             processors=[
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer(),
+                (
+                    structlog.processors.JSONRenderer()
+                    if json_output
+                    else structlog.dev.ConsoleRenderer()
+                ),
             ],
             foreign_pre_chain=shared_processors,
         )
