@@ -135,3 +135,27 @@ def format_positions(positions: list[dict]) -> str:
 
     lines.append(f"\nTotal invested: ${total_invested:.2f}")
     return "\n".join(lines)
+
+
+def format_exit_notification(
+    city: str,
+    date: str,
+    temp_f: int | float,
+    exit_reason: str,
+    pnl: float,
+    p_model: float,
+    entry_price: float,
+) -> str:
+    """Format a Telegram notification for an early position exit."""
+    reason_label = "Stop Loss" if exit_reason == "stop_loss" else "Take Profit"
+    pnl_sign = "+" if pnl >= 0 else ""
+    emoji = "🔴" if exit_reason == "stop_loss" else "🟢"
+    return (
+        f"{emoji} Early Exit [{reason_label}]\n"
+        f"City: {city}\n"
+        f"Date: {date}  Temp: {temp_f}°F\n"
+        f"p_model: {p_model:.3f}  entry: {entry_price:.3f}\n"
+        f"PnL: {pnl_sign}{pnl:.4f}\n"
+        f"Reason: {exit_reason}"
+    )
+

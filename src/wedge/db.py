@@ -99,18 +99,20 @@ class Database:
         self._conn.row_factory = aiosqlite.Row
         await self._conn.executescript(_SCHEMA)
         # Migration: add temp_unit column if not exists (for backward compatibility)
-        try:
-            await self._conn.execute(
-                "ALTER TABLE trades ADD COLUMN temp_unit TEXT NOT NULL DEFAULT 'F'"
-            )
-            await self._conn.commit()
-        except aiosqlite.OperationalError as e:
-            # SQLite raises OperationalError("duplicate column name: ...") when column exists.
-            # Only ignore that specific case; re-raise anything else to avoid silent corruption.
-            if "duplicate column name" in str(e).lower():
-                pass
-            else:
-                raise
+        for migration_sql in [
+            "ALTER TABLE trades ADD COLUMN temp_unit TEXT NOT NULL DEFAULT 'F'",
+            "ALTER TABLE trades ADD COLUMN exit_price REAL",
+            "ALTER TABLE trades ADD COLUMN exit_reason TEXT",
+            "ALTER TABLE trades ADD COLUMN settled_at TEXT",
+        ]:
+            try:
+                await self._conn.execute(migration_sql)
+                await self._conn.commit()
+            except aiosqlite.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    pass
+                else:
+                    raise
 
     async def close(self) -> None:
         if self._conn:
@@ -437,6 +439,35 @@ class Database:
             (str(start_date), str(end_date)),
         )
         return [dict(row) for row in await cursor.fetchall()]
+
+    async def close_position(
+        self,
+        city: str,
+        date_str: str,
+        temp_f: float,
+        pnl: float,
+        exit_price: float,
+        exit_reason: str,
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        await self._conn.execute(
+            """
+            UPDATE trades
+            SET settled=1, pnl=?, exit_price=?, exit_reason=?, settled_at=?
+            WHERE city=? AND date=? AND temp_f=? AND settled=0
+            """,
+            (pnl, exit_price, exit_reason, now, city, date_str, temp_f),
+        )
+        await self._conn.commit()
+        log.info(
+            "db.close_position",
+            city=city,
+            date_str=date_str,
+            temp_f=temp_f,
+            pnl=pnl,
+            exit_price=exit_price,
+            exit_reason=exit_reason,
+        )
 
     async def get_open_positions(self) -> list[dict]:
         """Get all unsettled positions."""

@@ -98,6 +98,10 @@ async def run_pipeline(
     cities_processed = 0
     cities_failed = 0
 
+    # Check exit conditions for open positions before new trades
+    async with httpx.AsyncClient() as _exit_http:
+        await check_exit_positions(settings, db, executor, http_client=_exit_http, notifier=notifier)
+
     # Pre-fetch city performance filter (batch)
     city_names = [c.name for c in settings.cities]
     city_filter = await get_city_filter(
@@ -395,6 +399,155 @@ async def _process_city(
             orders += 1
 
     return orders
+
+
+async def check_exit_positions(
+    settings: Settings,
+    db: Database,
+    executor: "DryRunExecutor | LiveExecutor",
+    *,
+    http_client: httpx.AsyncClient | None = None,
+    notifier: object | None = None,
+) -> int:
+    """Check all open positions and exit those where probability has turned against us.
+
+    Exit rules (probability-based):
+    - Stop-loss: p_model < entry_price * exit_loss_factor  (probability collapsed)
+    - Take-profit: p_model >= entry_price but EV <= exit_min_ev  (edge is gone)
+
+    Returns number of positions closed.
+    """
+    from wedge.monitoring.notify import format_exit_notification
+
+    positions = await db.get_open_positions()
+    if not positions:
+        return 0
+
+    closed = 0
+    own_client = False
+    if http_client is None:
+        http_client = httpx.AsyncClient()
+        own_client = True
+
+    try:
+        for pos in positions:
+            city_name = pos["city"]
+            date_str = pos["date"]
+            temp_f = pos["temp_f"]
+            entry_price = pos["entry_price"]
+
+            # Skip if settlement is imminent (avoid noise near expiry)
+            try:
+                settle_date = date.fromisoformat(date_str)
+                city_cfg_tz = next((c for c in settings.cities if c.name == city_name), None)
+                if city_cfg_tz:
+                    city_tz = ZoneInfo(city_cfg_tz.timezone)
+                    now_local = datetime.now(city_tz)
+                    settle_dt = datetime(settle_date.year, settle_date.month, settle_date.day, 23, 59, tzinfo=city_tz)
+                    hours_to_settle = (settle_dt - now_local).total_seconds() / 3600
+                    if hours_to_settle <= settings.exit_min_hours_to_settle:
+                        log.info("exit_skip_near_settlement", city=city_name, date=date_str, hours_remaining=round(hours_to_settle, 1))
+                        continue
+            except Exception:
+                pass
+
+            # Find city config
+            city_cfg = next((c for c in settings.cities if c.name == city_name), None)
+            if not city_cfg:
+                continue
+
+            # Re-fetch latest forecast for this city
+            try:
+                raw = await fetch_ensemble(http_client, city_cfg)
+                if not raw:
+                    continue
+                target_date = date.fromisoformat(date_str)
+                forecast = parse_distribution(raw, city_name, target_date)
+                if not forecast:
+                    continue
+            except Exception as e:
+                log.warning("exit_check_forecast_failed", city=city_name, error=str(e))
+                continue
+
+            # Get latest p_model for this bucket
+            p_model = forecast.buckets.get(int(temp_f))
+            if p_model is None:
+                # Try nearest bucket
+                nearest = min(forecast.buckets.keys(), key=lambda t: abs(t - temp_f), default=None)
+                if nearest is None:
+                    continue
+                p_model = forecast.buckets[nearest]
+
+            # Determine current market price (use entry_price as fallback)
+            market_price = entry_price
+
+            # Compute current EV: p_model * (1/market_price - 1) - (1 - p_model)
+            if market_price > 0:
+                ev = p_model * (1.0 / market_price - 1.0) - (1.0 - p_model)
+            else:
+                ev = -1.0
+
+            exit_reason: str | None = None
+
+            if p_model < entry_price * settings.exit_loss_factor:
+                # Probability collapsed — stop loss
+                exit_reason = "stop_loss"
+            elif p_model >= entry_price and ev <= settings.exit_min_ev:
+                # We're ahead but edge is gone — take profit
+                exit_reason = "take_profit"
+
+            if exit_reason is None:
+                log.info(
+                    "exit_check_hold",
+                    city=city_name,
+                    temp_f=temp_f,
+                    entry_price=entry_price,
+                    p_model=round(p_model, 4),
+                    ev=round(ev, 4),
+                )
+                continue
+
+            # Exit at current p_model as proxy for fair exit price
+            exit_price = round(p_model, 4)
+            pnl = await executor.close_position(
+                city=city_name,
+                date_str=date_str,
+                temp_f=temp_f,
+                exit_price=exit_price,
+                exit_reason=exit_reason,
+                db=db,
+            )
+            closed += 1
+
+            log.info(
+                "position_exited",
+                city=city_name,
+                temp_f=temp_f,
+                exit_reason=exit_reason,
+                p_model=round(p_model, 4),
+                entry_price=entry_price,
+                exit_price=exit_price,
+                pnl=round(pnl, 4),
+            )
+
+            if notifier and hasattr(notifier, "send"):
+                msg = format_exit_notification(
+                    city=city_name,
+                    date=date_str,
+                    temp_f=temp_f,
+                    exit_reason=exit_reason,
+                    pnl=pnl,
+                    p_model=p_model,
+                    entry_price=entry_price,
+                )
+                await notifier.send(msg)
+    finally:
+        if own_client:
+            await http_client.aclose()
+
+    if closed:
+        log.info("exit_check_complete", closed=closed)
+    return closed
 
 
 def _generate_synthetic_markets(

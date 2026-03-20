@@ -706,6 +706,7 @@ class TestPipelineOpenPositionsNotification:
             patch.object(connected_db, "get_open_positions", new_callable=AsyncMock, return_value=[fake_position]),
             patch("wedge.pipeline._process_city", new_callable=AsyncMock, return_value=1),
             patch("wedge.monitoring.notify.format_positions", return_value="open positions summary"),
+            patch("wedge.pipeline.check_exit_positions", new_callable=AsyncMock, return_value=0),
         ):
             await run_pipeline(settings_dry, connected_db, notifier=mock_notifier)
 

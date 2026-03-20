@@ -9,6 +9,7 @@ from wedge.monitoring.notify import (
     TelegramNotifier,
     create_notifier,
     format_alert,
+    format_exit_notification,
     format_pipeline_summary,
     format_stats,
 )
@@ -196,3 +197,34 @@ class TestFormatStats:
             brier=None,
         )
         assert "Wins: N/A" in text
+
+
+
+def test_format_exit_notification_stop_loss():
+    msg = format_exit_notification(
+        city="Chicago",
+        date="2026-07-04",
+        temp_f=85,
+        exit_reason="stop_loss",
+        pnl=-12.50,
+        p_model=0.20,
+        entry_price=0.45,
+    )
+    assert "Chicago" in msg
+    assert "stop_loss" in msg or "Stop Loss" in msg
+    assert "2026-07-04" in msg
+
+
+def test_format_exit_notification_take_profit():
+    msg = format_exit_notification(
+        city="Dallas",
+        date="2026-08-01",
+        temp_f=100,
+        exit_reason="take_profit",
+        pnl=8.75,
+        p_model=0.70,
+        entry_price=0.55,
+    )
+    assert "Dallas" in msg
+    assert "take_profit" in msg or "Take Profit" in msg
+    assert "8.75" in msg
