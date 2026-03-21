@@ -31,7 +31,7 @@ else:
 log = get_logger("pipeline")
 
 
-async def run_pipeline(settings: Settings, db: Database, *, notifier: object | None = None) -> None:
+async def run_pipeline(settings: Settings, db: Database) -> None:
     """Execute one full trading pipeline cycle across all cities."""
     run_id = uuid.uuid4().hex[:16]
     now = datetime.now(UTC)
@@ -71,7 +71,6 @@ async def run_pipeline(settings: Settings, db: Database, *, notifier: object | N
     ladder_budget, _, _ = allocate(
         current_balance,
         settings.ladder_alloc,
-        0.0,
     )
 
     total_orders = 0
@@ -86,7 +85,6 @@ async def run_pipeline(settings: Settings, db: Database, *, notifier: object | N
             db,
             executor,
             http_client=_exit_http,
-            notifier=notifier,
         )
 
     city_filter = {c.name: True for c in settings.cities}
@@ -163,26 +161,6 @@ async def run_pipeline(settings: Settings, db: Database, *, notifier: object | N
         unrealized_pnl=unrealized_pnl,
     )
 
-    # Send notification if notifier is available
-    if notifier and hasattr(notifier, "send"):
-        from wedge.monitoring.notify import format_pipeline_summary
-
-        summary = format_pipeline_summary(
-            mode=settings.mode,
-            cities=[c.name for c in settings.cities],
-            edges_found=total_orders,  # approximate
-            orders_placed=total_orders,
-            balance=await executor.get_balance(),
-        )
-        await notifier.send(summary)
-
-        # Also send positions summary if there are open positions
-        positions = await db.get_open_positions()
-        if positions:
-            from wedge.monitoring.notify import format_positions
-
-            await notifier.send(format_positions(positions))
-
     structlog.contextvars.unbind_contextvars("run_id")
 
 
@@ -247,9 +225,7 @@ async def _process_city(
         forecast,
         markets,
         ladder_threshold=settings.ladder_edge,
-        tail_threshold=settings.ladder_edge,
         fee_rate=settings.fee_rate,
-        target_date=target_date,
     )
     if not signals:
         log.info("no_edges", city=city_cfg.name)
@@ -309,7 +285,6 @@ async def check_exit_positions(
     executor: DryRunExecutor | LiveExecutor,
     *,
     http_client: httpx.AsyncClient | None = None,
-    notifier: object | None = None,
 ) -> int:
     """Check all open positions and exit those where probability has turned against us.
 
@@ -319,7 +294,7 @@ async def check_exit_positions(
 
     Returns number of positions closed.
     """
-    from wedge.monitoring.notify import format_exit_notification
+
 
     positions = await db.get_open_positions()
     if not positions:
@@ -444,17 +419,7 @@ async def check_exit_positions(
                 pnl=round(pnl, 4),
             )
 
-            if notifier and hasattr(notifier, "send"):
-                msg = format_exit_notification(
-                    city=city_name,
-                    date=date_str,
-                    temp_f=temp_f,
-                    exit_reason=exit_reason,
-                    pnl=pnl,
-                    p_model=p_model,
-                    entry_price=entry_price,
-                )
-                await notifier.send(msg)
+
     finally:
         if own_client:
             await http_client.aclose()
@@ -492,7 +457,7 @@ def _generate_synthetic_markets(forecast, city: str, target_date: date) -> list[
 
 
 async def run_settlement(
-    settings: Settings, db: Database, *, notifier: object | None = None
+    settings: Settings, db: Database
 ) -> int:
     """Settle all trades whose target date has passed.
 
@@ -571,13 +536,7 @@ async def run_settlement(
             pairs=pending_retry,
         )
 
-    if total_settled > 0 and notifier and hasattr(notifier, "send"):
-        settled_dates = len(unsettled) - len(pending_retry)
-        pending_count = len(pending_retry)
-        await notifier.send(
-            f"[Settlement] Settled {total_settled} trade(s) across "
-            f"{settled_dates} date(s) ({pending_count} pending retry)"
-        )
+
 
     log.info("settlement_complete", total_settled=total_settled)
 

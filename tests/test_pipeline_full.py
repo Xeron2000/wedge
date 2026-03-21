@@ -431,23 +431,6 @@ class TestRunPipeline:
         assert call_count == len(settings.cities)
 
     @pytest.mark.asyncio
-    async def test_notifier_called_on_success(self, db, settings):
-        from wedge.pipeline import run_pipeline
-
-        mock_exec = AsyncMock()
-        mock_exec.get_balance.return_value = 1000.0
-        mock_exec.get_unrealized_pnl.return_value = 0.0
-        notifier = AsyncMock()
-
-        with (
-            patch("wedge.pipeline.DryRunExecutor", return_value=mock_exec),
-            patch("wedge.pipeline._process_city", new_callable=AsyncMock, return_value=3),
-        ):
-            await run_pipeline(settings, db, notifier=notifier)
-
-        notifier.send.assert_awaited_once()
-
-    @pytest.mark.asyncio
     async def test_no_notifier_no_error(self, db, settings):
         from wedge.pipeline import run_pipeline
 
@@ -459,8 +442,7 @@ class TestRunPipeline:
             patch("wedge.pipeline.DryRunExecutor", return_value=mock_exec),
             patch("wedge.pipeline._process_city", new_callable=AsyncMock, return_value=0),
         ):
-            await run_pipeline(settings, db, notifier=None)
-
+            await run_pipeline(settings, db)
     @pytest.mark.asyncio
     async def test_balance_restored_from_db(self, db, settings):
         """get_last_balance is called with bankroll as default."""

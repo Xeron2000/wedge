@@ -19,7 +19,19 @@ from wedge.log import get_logger
 log = get_logger("weather.client")
 
 NOMADS_FILTER_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gefs_atmos_0p25s.pl"
-ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+WUNDERGROUND_API_URL = "https://api.weather.com/v1/location/{station}:9:{country}/observations/historical.json"
+AVIATIONWEATHER_METAR_URL = "https://aviationweather.gov/api/data/metar"
+WUNDERGROUND_API_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
+
+# ICAO station prefix → country code (for Weather Company API)
+_ICAO_TO_COUNTRY: dict[str, str] = {
+    "K": "US",   # US stations
+    "R": "KR",   # South Korea (RKSI = Incheon)
+    "Z": "CN",   # China (ZSPD = Pudong)
+    "E": "GB",   # UK (EGLL = Heathrow)
+    "S": "AR",   # Argentina (SAEZ = Ezeiza)
+    "N": "NZ",   # New Zealand (NZWN = Wellington)
+}
 _MEMBER_IDS = ("c00",) + tuple(f"p{i:02d}" for i in range(1, 31))
 _FORECAST_INTERVAL_HOURS = 3
 _MAX_FORECAST_HOURS = 384
@@ -464,42 +476,86 @@ async def fetch_ensemble(
 
     return result
 
+def _country_for_station(station: str) -> str | None:
+    prefix = station[0] if station else ""
+    return _ICAO_TO_COUNTRY.get(prefix)
+
 
 async def fetch_actual_temperature(
     client: httpx.AsyncClient,
     city: CityConfig,
     target_date: str,
 ) -> int | None:
-    """Fetch observed daily max temperature for a specific date.
-
-    Uses Open-Meteo Archive API. Returns rounded integer °F, or None on failure.
-    """
+    country = _country_for_station(city.station)
+    if not country:
+        log.error("unknown_station_country", station=city.station)
+        return None
+    url = WUNDERGROUND_API_URL.format(station=city.station, country=country)
+    date_compact = target_date.replace("-", "")
     params = {
-        "latitude": city.lat,
-        "longitude": city.lon,
-        "start_date": target_date,
-        "end_date": target_date,
-        "daily": "temperature_2m_max",
-        "temperature_unit": "fahrenheit",
-        "timezone": city.timezone,
+        "apiKey": WUNDERGROUND_API_KEY,
+        "units": "e",
+        "startDate": date_compact,
+        "endDate": date_compact,
     }
-
     for attempt in range(3):
         try:
-            resp = await client.get(ARCHIVE_URL, params=params, timeout=30.0)
+            resp = await client.get(url, params=params, timeout=30.0)
             resp.raise_for_status()
             data = resp.json()
-            temps = data.get("daily", {}).get("temperature_2m_max", [])
-            if temps and temps[0] is not None:
-                return round(temps[0])
-            log.warning("no_actual_temp_data", city=city.name, date=target_date)
-            return None
+            observations = data.get("observations", [])
+            if not observations:
+                log.warning("wunderground_no_observations", city=city.name, date=target_date)
+                return None
+            first = observations[0]
+            max_temp = first.get("max_temp")
+            if max_temp is None:
+                temps = [
+                    o["temp"]
+                    for o in observations
+                    if isinstance(o.get("temp"), (int, float)) and o["temp"] is not None
+                ]
+                if not temps:
+                    log.warning("wunderground_no_temps", city=city.name, date=target_date)
+                    return None
+                max_temp = max(temps)
+            return int(max_temp)
         except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
             wait = 2**attempt
-            log.warning("archive_api_retry", city=city.name, attempt=attempt + 1, error=str(e))
+            log.warning("wunderground_api_retry", city=city.name, attempt=attempt + 1, error=str(e))
             if attempt < 2:
-                import asyncio
-
                 await asyncio.sleep(wait)
-    log.error("archive_api_failed", city=city.name, date=target_date)
+    log.error("wunderground_api_failed", city=city.name, date=target_date)
     return None
+
+
+async def fetch_metar_observation(
+    client: httpx.AsyncClient,
+    city: CityConfig,
+    target_date: str,
+) -> int | None:
+    date_compact = target_date.replace("-", "")
+    params = {
+        "ids": city.station,
+        "start": f"{date_compact}_0000",
+        "end": f"{date_compact}_2359",
+        "format": "json",
+    }
+    try:
+        resp = await client.get(
+            AVIATIONWEATHER_METAR_URL, params=params, timeout=30.0
+        )
+        resp.raise_for_status()
+        reports = resp.json()
+        if not isinstance(reports, list) or not reports:
+            return None
+        temps_c = [
+            r["temp"]
+            for r in reports
+            if isinstance(r.get("temp"), (int, float)) and r["temp"] is not None
+        ]
+        if not temps_c:
+            return None
+        return round(max(temps_c) * 9.0 / 5.0 + 32.0)
+    except Exception:
+        return None

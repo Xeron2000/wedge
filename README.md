@@ -53,7 +53,7 @@ See [docs/CONFIG.md](docs/CONFIG.md) for full documentation.
 wedge scan --city NYC
 wedge run --dry-run
 wedge run --dry-run --bankroll 500 --kelly 0.10
-wedge run --dry-run --telegram
+wedge run --dry-run --bankroll 500 --kelly 0.10
 wedge run --live --bankroll 1000
 wedge stats --days 30
 ```
@@ -63,10 +63,6 @@ wedge stats --days 30
 Config file is recommended, but env vars still work:
 
 ```bash
-# Telegram (optional)
-export WEDGE_TELEGRAM_TOKEN="..."
-export WEDGE_TELEGRAM_CHAT_ID="..."
-
 # Polymarket (required for --live)
 export WEDGE_POLYMARKET_PRIVATE_KEY="..."
 export WEDGE_POLYMARKET_API_KEY="..."

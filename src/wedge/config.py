@@ -64,7 +64,7 @@ DEFAULT_CITIES = [
         lat=31.1434,
         lon=121.8052,
         timezone="Asia/Shanghai",
-        station="ZSSS",
+        station="ZSPD",
     ),
     CityConfig(
         name="Miami",
@@ -116,20 +116,19 @@ class Settings(BaseSettings):
 
     # NOAA latency-path rollout (Phase 1+2)
     readiness_mode: str = "off"  # off | shadow | active
-    readiness_probe_start_offset_minutes: int = 200  # cycle + 3h20m
-    readiness_probe_fast_poll_seconds: int = 30
-    readiness_probe_fast_until_minutes: int = 250  # cycle + 4h10m
-    readiness_probe_slow_poll_seconds: int = 10
-    readiness_probe_timeout_minutes: int = 270  # cycle + 4h30m
+    readiness_probe_start_offset_minutes: int = 180  # cycle + 3h — start polling as early as possible
+    readiness_probe_fast_poll_seconds: int = 60  # check every 60s once probing starts
+    readiness_probe_fast_until_minutes: int = 210  # cycle + 3h30m — fast poll window
+    readiness_probe_slow_poll_seconds: int = 120  # slow to 2min after fast window
+    readiness_probe_timeout_minutes: int = 240  # cycle + 4h — hard timeout
     readiness_probe_max_attempts: int = 180
     readiness_fetch_concurrency: int = 16
     readiness_error_rate_threshold: float = 0.05
     enable_parallel_noaa_fetch: bool = False
 
     offsets_utc: list[str] = Field(
-        default_factory=lambda: ["03:45", "09:45", "15:45", "21:45"]
-        # GFS model runs at 00/06/12/18 UTC; data available ~3.5h later.
-        # Running at :45 past the hour catches fresh data before market makers reprice.
+        default_factory=lambda: ["03:00", "09:00", "15:00", "21:00"]
+        # Start probing at cycle+3h. Readiness probe polls until data is available.
     )
 
     cities: list[CityConfig] = Field(default_factory=lambda: list(DEFAULT_CITIES))

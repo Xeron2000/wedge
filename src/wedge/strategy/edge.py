@@ -49,12 +49,9 @@ def detect_edges(
     forecast: ForecastDistribution,
     markets: list[MarketBucket],
     ladder_threshold: float = 0.05,
-    tail_threshold: float = 0.08,
     fee_rate: float = _DEFAULT_FEE_RATE,
-    target_date: date | None = None,
 ) -> list[EdgeSignal]:
     """Find buckets where model probability exceeds market pricing."""
-    del tail_threshold, target_date
 
     signals: list[EdgeSignal] = []
     min_threshold = ladder_threshold

@@ -222,16 +222,14 @@ class TestRunSettlement:
             created_at=datetime.now(UTC).isoformat(),
         )
 
-        mock_notifier = AsyncMock()
 
         with patch(
             "wedge.pipeline.fetch_actual_temperature",
             return_value=78,
         ):
-            settled = await run_settlement(settings, db, notifier=mock_notifier)
+            settled = await run_settlement(settings, db)
 
         assert settled == 1
-        mock_notifier.send.assert_called_once()
 
         # Verify brier is now computed
         brier = await db.get_brier_score(days=365)

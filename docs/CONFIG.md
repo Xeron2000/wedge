@@ -88,7 +88,7 @@ wedge backtest --days 30
 
 | Key | 类型 | 默认值 | 说明 |
 |-----|------|--------|------|
-| `offsets_utc` | list[str] | `03:45, 09:45, 15:45, 21:45` | 调度窗口 |
+|| `offsets_utc` | list[str] | `03:00, 09:00, 15:00, 21:00` | 调度窗口 |
 | `cities` | list | 内置默认值 | 与机场对齐的城市列表 |
 | `polymarket_private_key` | string | `""` | Ethereum 私钥 |
 | `polymarket_api_key` | string | `""` | Polymarket API key |
@@ -96,7 +96,7 @@ wedge backtest --days 30
 
 ## 说明
 
-- 预测主源已经是 **direct NOAA GEFS**，不是 Open-Meteo ensemble。
-- 结算阶段仍使用 archive observed temperatures。
-- tail、arbitrage、telegram、calibration 的 runtime 配置已经过时。
-- 本地历史配置文件里如果还残留旧 key，应用会自动忽略。
+- 预测源：direct NOAA GEFS
+- 结算源：Weather Company API (Wunderground)
+- 验证层：aviationweather.gov METAR
+- 旧配置中的遗留 key 会被自动忽略

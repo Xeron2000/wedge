@@ -43,7 +43,7 @@ async def _run_scheduler_quick(settings, **kwargs):
     stop_after = asyncio.Event()
     _original_run_pipeline = None
 
-    async def fake_pipeline(s, d, *, notifier=None):
+    async def fake_pipeline(s, d):
         stop_after.set()
 
     with (
@@ -88,7 +88,7 @@ class TestGuardedPipeline:
 
         pipeline_called = []
 
-        async def fake_pipeline(s, d, *, notifier=None):
+        async def fake_pipeline(s, d):
             pipeline_called.append(True)
 
         with (
@@ -132,7 +132,7 @@ class TestGuardedPipeline:
 
         pipeline_called = []
 
-        async def fake_pipeline(s, d, *, notifier=None):
+        async def fake_pipeline(s, d):
             pipeline_called.append(True)
 
         with (
@@ -173,7 +173,7 @@ class TestGuardedPipeline:
         db_path = str(tmp_path / "err.db")
         settings = settings.model_copy(update={"db_path": db_path})
 
-        async def boom(s, d, *, notifier=None):
+        async def boom(s, d):
             raise RuntimeError("pipeline exploded")
 
         with (
@@ -215,7 +215,7 @@ class TestGuardedPipeline:
         pipeline_calls = []
 
         # Simulate lock already held
-        async def slow_pipeline(s, d, *, notifier=None):
+        async def slow_pipeline(s, d):
             pipeline_calls.append("called")
             await asyncio.sleep(0.5)
 
@@ -261,7 +261,7 @@ class TestRunSettlementInner:
 
         settlement_calls = []
 
-        async def fake_settlement(s, d, *, notifier=None):
+        async def fake_settlement(s, d):
             settlement_calls.append(True)
             return 2
 
@@ -311,7 +311,7 @@ class TestRunSettlementInner:
         db_path = str(tmp_path / "se.db")
         settings = settings.model_copy(update={"db_path": db_path})
 
-        async def boom_settlement(s, d, *, notifier=None):
+        async def boom_settlement(s, d):
             raise RuntimeError("settlement boom")
 
         with (

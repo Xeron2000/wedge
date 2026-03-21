@@ -93,7 +93,7 @@ async def run_scheduler(settings: Settings) -> None:
                         return
 
                     try:
-                        await run_pipeline(settings, db, notifier=None)
+                        await run_pipeline(settings, db)
                         await db.update_cycle_marker_status(
                             cycle_key,
                             status="completed",
@@ -108,13 +108,13 @@ async def run_scheduler(settings: Settings) -> None:
                         raise
                     return
 
-                await run_pipeline(settings, db, notifier=None)
+                await run_pipeline(settings, db)
             except Exception as e:
                 log.error("pipeline_error", error=str(e))
 
     async def _run_settlement() -> None:
         try:
-            await run_settlement(settings, db, notifier=None)
+            await run_settlement(settings, db)
         except Exception as e:
             log.error("settlement_error", error=str(e))
 

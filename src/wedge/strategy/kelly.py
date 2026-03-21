@@ -170,25 +170,3 @@ def fractional_kelly(
         reasoning="; ".join(reasoning_parts) if reasoning_parts else "ok",
     )
 
-
-def legacy_fractional_kelly(
-    p_model: float,
-    market_price: float,
-    bankroll: float,
-    fraction: float = 0.15,
-    max_bet: float = 100.0,
-    max_bet_pct: float = 0.05,
-) -> float:
-    """Legacy Kelly function for backwards compatibility.
-
-    Deprecated: Use new fractional_kelly() which returns KellyResult.
-    """
-    result = fractional_kelly(
-        p_model=p_model,
-        market_price=market_price,
-        bankroll=bankroll,
-        fraction=fraction,
-        max_bet=max_bet,
-        max_bet_pct=max_bet_pct,
-    )
-    return result.bet_size

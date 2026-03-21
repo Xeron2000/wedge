@@ -55,7 +55,7 @@ class TestPortfolio:
         assert abs(cash - 100) < 1e-9
 
     def test_custom_allocation(self):
-        ladder, reserve, cash = allocate(1000, ladder_pct=0.60, tail_pct=0.0)
+        ladder, reserve, cash = allocate(1000, ladder_pct=0.60)
         assert abs(ladder - 600) < 1e-9
         assert abs(reserve - 0) < 1e-9
         assert abs(cash - 400) < 1e-9

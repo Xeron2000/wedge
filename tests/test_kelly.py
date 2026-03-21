@@ -5,7 +5,7 @@ import math
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from wedge.strategy.kelly import KellyResult, fractional_kelly, legacy_fractional_kelly
+from wedge.strategy.kelly import KellyResult, fractional_kelly
 
 
 class TestKelly:
@@ -81,12 +81,6 @@ class TestKelly:
 
         assert result_with_lockup.bet_size < result_no_lockup.bet_size
 
-    def test_legacy_function_backwards_compatibility(self):
-        """Test legacy function returns just bet size as float."""
-        bet = legacy_fractional_kelly(p_model=0.40, market_price=0.30, bankroll=1000)
-
-        assert isinstance(bet, float)
-        assert bet > 0
 
 
 class TestKellyPBT:
