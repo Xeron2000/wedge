@@ -111,7 +111,20 @@ class Settings(BaseSettings):
     exit_min_ev: float = 0.0
     exit_min_hours_to_settle: int = 12
     brier_threshold: float = 0.25
+    scheduler_brier_days: int = 30
     spread_baseline_f: float = 3.0
+
+    # NOAA latency-path rollout (Phase 1+2)
+    readiness_mode: str = "off"  # off | shadow | active
+    readiness_probe_start_offset_minutes: int = 200  # cycle + 3h20m
+    readiness_probe_fast_poll_seconds: int = 30
+    readiness_probe_fast_until_minutes: int = 250  # cycle + 4h10m
+    readiness_probe_slow_poll_seconds: int = 10
+    readiness_probe_timeout_minutes: int = 270  # cycle + 4h30m
+    readiness_probe_max_attempts: int = 180
+    readiness_fetch_concurrency: int = 16
+    readiness_error_rate_threshold: float = 0.05
+    enable_parallel_noaa_fetch: bool = False
 
     offsets_utc: list[str] = Field(
         default_factory=lambda: ["03:45", "09:45", "15:45", "21:45"]

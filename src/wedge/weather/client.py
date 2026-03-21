@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import math
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 import httpx
@@ -9,7 +11,7 @@ from eccodes import (
     codes_grib_find_nearest,
     codes_grib_new_from_file,
     codes_release,
-)
+ )
 
 from wedge.config import CityConfig
 from wedge.log import get_logger
@@ -22,6 +24,20 @@ _MEMBER_IDS = ("c00",) + tuple(f"p{i:02d}" for i in range(1, 31))
 _FORECAST_INTERVAL_HOURS = 3
 _MAX_FORECAST_HOURS = 384
 _MIN_MEMBER_COUNT = 2
+_TRADABLE_MEMBER_COUNT = 20
+
+
+@dataclass(slots=True)
+class ReadinessProbeResult:
+    run_date: date
+    cycle_hour: int
+    target_date: date
+    forecast_hours: list[int]
+    prefetched_temperatures: dict[str, list[float]]
+    ready: bool
+    reason: str
+    checked_at: datetime
+    attempts: int
 
 
 def _utc_now() -> datetime:
@@ -106,14 +122,257 @@ def _extract_point_temperature_f(grib_bytes: bytes, city: CityConfig) -> float |
                 pass
 
 
+def parse_readiness_probe(
+    *,
+    run_date: date,
+    cycle_hour: int,
+    target_date: date,
+    forecast_hours: list[int],
+    prefetched_temperatures: dict[str, list[float]],
+    ready: bool,
+    reason: str,
+    checked_at: datetime,
+    attempts: int,
+ ) -> ReadinessProbeResult:
+    return ReadinessProbeResult(
+        run_date=run_date,
+        cycle_hour=cycle_hour,
+        target_date=target_date,
+        forecast_hours=list(forecast_hours),
+        prefetched_temperatures={k: list(v) for k, v in prefetched_temperatures.items()},
+        ready=ready,
+        reason=reason,
+        checked_at=checked_at,
+        attempts=attempts,
+    )
+
+
+def _build_slice_params(
+    *,
+    city: CityConfig,
+    dir_path: str,
+    member_id: str,
+    cycle_hour: int,
+    forecast_hour: int,
+ ) -> dict[str, str]:
+    return {
+        "file": _member_file(member_id, cycle_hour, forecast_hour),
+        "lev_2_m_above_ground": "on",
+        "var_TMP": "on",
+        "subregion": "",
+        "leftlon": str(city.lon),
+        "rightlon": str(city.lon),
+        "toplat": str(city.lat),
+        "bottomlat": str(city.lat),
+        "dir": dir_path,
+    }
+
+
+async def _fetch_slice_temperature(
+    client: httpx.AsyncClient,
+    *,
+    city: CityConfig,
+    member_id: str,
+    forecast_hour: int,
+    params: dict[str, str],
+ ) -> tuple[str, int, float | None, bool]:
+    try:
+        resp = await client.get(NOMADS_FILTER_URL, params=params, timeout=30.0)
+        resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as exc:
+        log.warning(
+            "noaa_fetch_failed",
+            city=city.name,
+            member=member_id,
+            forecast_hour=forecast_hour,
+            error=str(exc),
+        )
+        return member_id, forecast_hour, None, True
+
+    value = _extract_point_temperature_f(resp.content, city)
+    return member_id, forecast_hour, value, False
+
+
+async def probe_cycle_readiness(
+    client: httpx.AsyncClient,
+    city: CityConfig,
+    target_date: date,
+    *,
+    now: datetime | None = None,
+ ) -> ReadinessProbeResult:
+    run_date, cycle_hour = _resolve_latest_cycle(now)
+    forecast_hours = _forecast_hours_for_target_date(
+        target_date, city.timezone, run_date, cycle_hour
+    )
+    checked_at = _utc_now()
+    if not forecast_hours:
+        return parse_readiness_probe(
+            run_date=run_date,
+            cycle_hour=cycle_hour,
+            target_date=target_date,
+            forecast_hours=[],
+            prefetched_temperatures={},
+            ready=False,
+            reason="no_forecast_hours",
+            checked_at=checked_at,
+            attempts=0,
+        )
+
+    dir_path = f"/gefs.{run_date.strftime('%Y%m%d')}/{cycle_hour:02d}/atmos/pgrb2sp25"
+    prefetched: dict[str, list[float]] = {}
+    attempts = 0
+
+    control_values: list[float] = []
+    for forecast_hour in forecast_hours:
+        attempts += 1
+        _, _, value, had_error = await _fetch_slice_temperature(
+            client,
+            city=city,
+            member_id="c00",
+            forecast_hour=forecast_hour,
+            params=_build_slice_params(
+                city=city,
+                dir_path=dir_path,
+                member_id="c00",
+                cycle_hour=cycle_hour,
+                forecast_hour=forecast_hour,
+            ),
+        )
+        if had_error:
+            continue
+        if value is not None and math.isfinite(value):
+            control_values.append(value)
+
+    if control_values:
+        prefetched["c00"] = control_values
+    else:
+        return parse_readiness_probe(
+            run_date=run_date,
+            cycle_hour=cycle_hour,
+            target_date=target_date,
+            forecast_hours=forecast_hours,
+            prefetched_temperatures=prefetched,
+            ready=False,
+            reason="control_member_missing",
+            checked_at=checked_at,
+            attempts=attempts,
+        )
+
+    first_horizon = forecast_hours[0]
+    attempts += 1
+    _, _, value, had_error = await _fetch_slice_temperature(
+        client,
+        city=city,
+        member_id="p01",
+        forecast_hour=first_horizon,
+        params=_build_slice_params(
+            city=city,
+            dir_path=dir_path,
+            member_id="p01",
+            cycle_hour=cycle_hour,
+            forecast_hour=first_horizon,
+        ),
+    )
+    if not had_error and value is not None and math.isfinite(value):
+        prefetched["p01"] = [value]
+
+    perturb_values = prefetched.get("p01", [])
+    ready = bool(perturb_values)
+    reason = "ready" if ready else "perturbation_member_missing"
+
+    return parse_readiness_probe(
+        run_date=run_date,
+        cycle_hour=cycle_hour,
+        target_date=target_date,
+        forecast_hours=forecast_hours,
+        prefetched_temperatures=prefetched,
+        ready=ready,
+        reason=reason,
+        checked_at=checked_at,
+        attempts=attempts,
+    )
+
+
+async def _fetch_member_temperatures_parallel(
+    client: httpx.AsyncClient,
+    *,
+    city: CityConfig,
+    dir_path: str,
+    cycle_hour: int,
+    forecast_hours: list[int],
+    seed_prefetch: dict[str, list[float]],
+    max_concurrency: int,
+ ) -> tuple[dict[str, list[float]], int]:
+    semaphore = asyncio.Semaphore(max(1, max_concurrency))
+    member_values = {member_id: list(values) for member_id, values in seed_prefetch.items()}
+    error_count = 0
+    tasks: list[asyncio.Task[tuple[str, int, float | None, bool]]] = []
+
+    async def _run(
+        member_id: str, forecast_hour: int, params: dict[str, str]
+    ) -> tuple[str, int, float | None, bool]:
+        async with semaphore:
+            return await _fetch_slice_temperature(
+                client,
+                city=city,
+                member_id=member_id,
+                forecast_hour=forecast_hour,
+                params=params,
+            )
+
+    for member_id in _MEMBER_IDS:
+        existing = len(member_values.get(member_id, []))
+        for forecast_hour in forecast_hours[existing:]:
+            tasks.append(
+                asyncio.create_task(
+                    _run(
+                        member_id,
+                        forecast_hour,
+                        _build_slice_params(
+                            city=city,
+                            dir_path=dir_path,
+                            member_id=member_id,
+                            cycle_hour=cycle_hour,
+                            forecast_hour=forecast_hour,
+                        ),
+                    )
+                )
+            )
+
+    for member_id, _, value, had_error in await asyncio.gather(*tasks):
+        if had_error:
+            error_count += 1
+            continue
+        if value is not None and math.isfinite(value):
+            member_values.setdefault(member_id, []).append(value)
+
+    return member_values, error_count
+
+
+def _member_maxima(
+    member_values: dict[str, list[float]],
+ ) -> dict[str, float]:
+    maxima: dict[str, float] = {}
+    for member_id, values in member_values.items():
+        if values:
+            maxima[member_id] = max(values)
+    return maxima
+
 async def fetch_ensemble(
     client: httpx.AsyncClient,
     city: CityConfig,
     target_date: date,
-) -> dict[str, object] | None:
-    run_date, cycle_hour = _resolve_latest_cycle()
-    forecast_hours = _forecast_hours_for_target_date(
-        target_date, city.timezone, run_date, cycle_hour
+    *,
+    probe: ReadinessProbeResult | None = None,
+    parallel: bool = False,
+    max_concurrency: int = 1,
+    error_rate_threshold: float = 0.05,
+ ) -> dict[str, object] | None:
+    run_date, cycle_hour = (probe.run_date, probe.cycle_hour) if probe else _resolve_latest_cycle()
+    forecast_hours = (
+        list(probe.forecast_hours)
+        if probe and probe.target_date == target_date
+        else _forecast_hours_for_target_date(target_date, city.timezone, run_date, cycle_hour)
     )
     if not forecast_hours:
         log.warning(
@@ -123,53 +382,56 @@ async def fetch_ensemble(
         )
         return None
 
-    member_temps_f: dict[str, float] = {}
     dir_path = f"/gefs.{run_date.strftime('%Y%m%d')}/{cycle_hour:02d}/atmos/pgrb2sp25"
+    fetch_mode = "sequential"
+    error_count = 0
+    prefetched = probe.prefetched_temperatures if probe else {}
 
-    for member_id in _MEMBER_IDS:
-        member_values: list[float] = []
-        for forecast_hour in forecast_hours:
-            params = {
-                "file": _member_file(member_id, cycle_hour, forecast_hour),
-                "lev_2_m_above_ground": "on",
-                "var_TMP": "on",
-                "subregion": "",
-                "leftlon": str(city.lon),
-                "rightlon": str(city.lon),
-                "toplat": str(city.lat),
-                "bottomlat": str(city.lat),
-                "dir": dir_path,
-            }
-            try:
-                resp = await client.get(NOMADS_FILTER_URL, params=params, timeout=30.0)
-                resp.raise_for_status()
-            except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as exc:
-                log.warning(
-                    "noaa_fetch_failed",
-                    city=city.name,
-                    member=member_id,
-                    forecast_hour=forecast_hour,
-                    error=str(exc),
-                )
-                continue
-
-            value = _extract_point_temperature_f(resp.content, city)
-            if value is not None and math.isfinite(value):
-                member_values.append(value)
-
-        if member_values:
-            member_temps_f[member_id] = max(member_values)
-
-    if len(member_temps_f) < _MIN_MEMBER_COUNT:
-        log.error(
-            "noaa_insufficient_members",
-            city=city.name,
-            target_date=target_date.isoformat(),
-            members=len(member_temps_f),
+    if parallel:
+        member_values, error_count = await _fetch_member_temperatures_parallel(
+            client,
+            city=city,
+            dir_path=dir_path,
+            cycle_hour=cycle_hour,
+            forecast_hours=forecast_hours,
+            seed_prefetch=prefetched,
+            max_concurrency=max_concurrency,
         )
-        return None
+        total_attempts = max(sum(len(v) for v in member_values.values()) + error_count, 1)
+        if error_count / total_attempts > error_rate_threshold:
+            fetch_mode = "parallel_degraded"
+        else:
+            fetch_mode = "parallel"
+    else:
+        member_values: dict[str, list[float]] = {
+            member_id: list(values) for member_id, values in prefetched.items()
+        }
+        for member_id in _MEMBER_IDS:
+            values = member_values.setdefault(member_id, [])
+            for forecast_hour in forecast_hours[len(values) :]:
+                _, _, value, had_error = await _fetch_slice_temperature(
+                    client,
+                    city=city,
+                    member_id=member_id,
+                    forecast_hour=forecast_hour,
+                    params=_build_slice_params(
+                        city=city,
+                        dir_path=dir_path,
+                        member_id=member_id,
+                        cycle_hour=cycle_hour,
+                        forecast_hour=forecast_hour,
+                    ),
+                )
+                if had_error:
+                    error_count += 1
+                    continue
+                if value is not None and math.isfinite(value):
+                    values.append(value)
 
-    return {
+    member_temps_f = _member_maxima(member_values)
+    member_count = len(member_temps_f)
+
+    result = {
         "source": "noaa_gefs",
         "city": city.name,
         "target_date": target_date.isoformat(),
@@ -181,7 +443,26 @@ async def fetch_ensemble(
             tzinfo=UTC,
         ).isoformat(),
         "member_temps_f": member_temps_f,
+        "member_count": member_count,
+        "error_count": error_count,
+        "fetch_mode": fetch_mode,
     }
+
+    if member_count < _MIN_MEMBER_COUNT:
+        log.error(
+            "noaa_insufficient_members",
+            city=city.name,
+            target_date=target_date.isoformat(),
+            members=member_count,
+        )
+        return None
+
+    if parallel and member_count < _TRADABLE_MEMBER_COUNT:
+        result["status"] = "partial_publication"
+    else:
+        result["status"] = "ready"
+
+    return result
 
 
 async def fetch_actual_temperature(

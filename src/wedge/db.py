@@ -62,10 +62,20 @@ CREATE TABLE IF NOT EXISTS bankroll_snapshots (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cycle_markers (
+    cycle_key TEXT PRIMARY KEY,
+    trigger_mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    run_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT
+ );
+
 CREATE INDEX IF NOT EXISTS idx_trades_run ON trades(run_id);
 CREATE INDEX IF NOT EXISTS idx_trades_city_date ON trades(city, date);
 CREATE INDEX IF NOT EXISTS idx_forecasts_city_date ON forecasts(city, date);
 CREATE INDEX IF NOT EXISTS idx_trades_settled ON trades(settled);
+CREATE INDEX IF NOT EXISTS idx_cycle_markers_status ON cycle_markers(status);
 """
 
 
@@ -197,6 +207,73 @@ class Database:
                VALUES (?, ?, ?, ?, ?, ?)""",
             (run_id, city, date, temp_f, p_model, created_at),
         )
+        await self.conn.commit()
+
+    async def insert_forecasts_batch(
+        self,
+        *,
+        run_id: str,
+        city: str,
+        date: str,
+        buckets: dict[int, float],
+        created_at: str,
+    ) -> None:
+        rows = [
+            (run_id, city, date, temp_f, p_model, created_at)
+            for temp_f, p_model in buckets.items()
+        ]
+        await self.conn.executemany(
+            """INSERT INTO forecasts (run_id, city, date, temp_f, p_model, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        await self.conn.commit()
+
+    async def claim_cycle_marker(
+        self,
+        cycle_key: str,
+        *,
+        trigger_mode: str,
+        status: str,
+        run_id: str | None,
+        created_at: str,
+    ) -> bool:
+        cursor = await self.conn.execute(
+            """INSERT OR IGNORE INTO cycle_markers
+               (cycle_key, trigger_mode, status, run_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (cycle_key, trigger_mode, status, run_id, created_at, created_at),
+        )
+        await self.conn.commit()
+        return cursor.rowcount > 0
+
+    async def get_cycle_marker(self, cycle_key: str) -> dict | None:
+        cursor = await self.conn.execute(
+            "SELECT cycle_key, trigger_mode, status, run_id, created_at, updated_at "
+            "FROM cycle_markers WHERE cycle_key=?",
+            (cycle_key,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def update_cycle_marker_status(
+        self,
+        cycle_key: str,
+        *,
+        status: str,
+        updated_at: str,
+        run_id: str | None = None,
+    ) -> None:
+        if run_id is None:
+            await self.conn.execute(
+                "UPDATE cycle_markers SET status=?, updated_at=? WHERE cycle_key=?",
+                (status, updated_at, cycle_key),
+            )
+        else:
+            await self.conn.execute(
+                "UPDATE cycle_markers SET status=?, run_id=?, updated_at=? WHERE cycle_key=?",
+                (status, run_id, updated_at, cycle_key),
+            )
         await self.conn.commit()
 
     async def insert_bankroll_snapshot(

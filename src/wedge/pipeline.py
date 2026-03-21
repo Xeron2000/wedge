@@ -40,27 +40,8 @@ async def run_pipeline(settings: Settings, db: Database, *, notifier: object | N
     await db.insert_run(run_id, now.isoformat())
     log.info("pipeline_start", mode=settings.mode, bankroll=settings.bankroll)
 
-    # Check Brier score before trading (weekly window)
-    brier = await db.get_brier_score(days=7)
-    if brier is not None and brier > settings.brier_threshold:
-        log.warning(
-            "brier_threshold_exceeded",
-            brier=f"{brier:.4f}",
-            threshold=settings.brier_threshold,
-            action="skipping_trading",
-        )
-        await db.complete_run(run_id, datetime.now(UTC).isoformat(), "paused_brier")
-        if notifier and hasattr(notifier, "send"):
-            await notifier.send(
-                "⚠️ Trading paused: "
-                f"Brier score {brier:.4f} exceeds threshold {settings.brier_threshold}"
-            )
-        structlog.contextvars.unbind_contextvars("run_id")
-        return
-
     # Restore balance from last snapshot (persists across pipeline runs)
     current_balance = await db.get_last_balance(default=settings.bankroll)
-
     # Set up executor and shared Polymarket client
     # For market data: use public client (no auth needed)
     # For trading: use authenticated client (requires credentials)
@@ -221,7 +202,14 @@ async def _process_city(
     log.info("processing_city", city=city_cfg.name, date=str(target_date))
 
     # 1. Fetch weather data
-    raw = await fetch_ensemble(http_client, city_cfg, target_date)
+    raw = await fetch_ensemble(
+        http_client,
+        city_cfg,
+        target_date,
+        parallel=settings.enable_parallel_noaa_fetch,
+        max_concurrency=settings.readiness_fetch_concurrency,
+        error_rate_threshold=settings.readiness_error_rate_threshold,
+    )
     if not raw:
         log.warning("no_weather_data", city=city_cfg.name)
         return 0
@@ -233,15 +221,13 @@ async def _process_city(
         return 0
 
     # 3. Store forecasts
-    for temp_f, prob in forecast.buckets.items():
-        await db.insert_forecast(
-            run_id=run_id,
-            city=city_cfg.name,
-            date=target_date.isoformat(),
-            temp_f=temp_f,
-            p_model=prob,
-            created_at=datetime.now(UTC).isoformat(),
-        )
+    await db.insert_forecasts_batch(
+        run_id=run_id,
+        city=city_cfg.name,
+        date=target_date.isoformat(),
+        buckets=forecast.buckets,
+        created_at=datetime.now(UTC).isoformat(),
+    )
 
     # 4. Scan market (prefer real market data when available)
     if poly_client:
