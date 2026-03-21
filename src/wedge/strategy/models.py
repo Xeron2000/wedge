@@ -18,3 +18,4 @@ class EdgeSignal(BaseModel):
     ensemble_spread: float = 0.0  # Forecast uncertainty (°F std dev across ensemble members)
     forecast_age_hours: float = 0.0  # Hours since GFS model update
     weight: float = 1.0  # Signal weight (adjusted by forecast freshness)
+    side: str = "buy"  # "buy" = long Yes, "sell" = short Yes (buy No)

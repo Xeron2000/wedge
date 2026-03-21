@@ -21,7 +21,7 @@ class MarketBucket(BaseModel):
 
 class Position(BaseModel):
     bucket: MarketBucket
-    side: Literal["buy"] = "buy"
+    side: Literal["buy", "sell"] = "buy"
     size: float  # USD amount
     entry_price: float
     strategy: Literal["ladder"]

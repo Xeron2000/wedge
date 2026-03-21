@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from wedge.market.models import MarketBucket
-from wedge.strategy.edge import calculate_ev, detect_edges, estimate_slippage
+from wedge.strategy.edge import calculate_ev, calculate_ev_short, detect_edges, estimate_slippage
 from wedge.weather.models import ForecastDistribution
 
 
@@ -43,11 +43,13 @@ class TestEdgeDetection:
         assert len(signals) == 1
         assert signals[0].edge > 0.05
 
-    def test_negative_edge_filtered(self):
+    def test_negative_edge_generates_short_signal(self):
         forecast = _forecast({78: 0.10})
-        markets = [_market(78, 0.20)]  # edge = -0.10
+        markets = [_market(78, 0.20)]  # edge = -0.10, short signal
         signals = detect_edges(forecast, markets)
-        assert len(signals) == 0
+        assert len(signals) == 1
+        assert signals[0].side == "sell"
+        assert signals[0].edge == pytest.approx(0.10, abs=0.01)  # abs(edge) for short
 
     def test_zero_edge_filtered(self):
         forecast = _forecast({78: 0.20})
@@ -163,3 +165,40 @@ class TestEVCalculation:
         # This would need extreme conditions to flip EV negative when edge is positive
         # For now, test that signals include EV information
         assert signals[0].edge > 0
+
+
+class TestShortEV:
+    """Tests for calculate_ev_short (buying No)."""
+
+    def test_short_ev_basic(self):
+        """p_model=0.10, market=0.20 → buy No @ 0.80"""
+        # no_price = 0.80, odds_no = 0.20/0.80 = 0.25
+        # ev = 0.90 * 0.25 - 0.10 = 0.125 (no fees)
+        ev = calculate_ev_short(0.10, 0.20, fee_rate=0.0)
+        assert ev == pytest.approx(0.125, rel=0.01)
+
+    def test_short_ev_with_fee(self):
+        """p_model=0.05, market=0.15 → buy No @ 0.85, 2% fee"""
+        # no_price = 0.85, odds_no = 0.15/0.85 = 0.1765
+        # ev = 0.95 * 0.98 * 0.1765 - 0.05 = 0.114
+        ev = calculate_ev_short(0.05, 0.15, fee_rate=0.02)
+        assert ev == pytest.approx(0.114, rel=0.02)
+
+    def test_short_ev_negative_when_model_higher(self):
+        """p_model=0.30, market=0.20 → no short edge"""
+        ev = calculate_ev_short(0.30, 0.20, fee_rate=0.0)
+        assert ev < 0
+
+    def test_long_signals_have_buy_side(self):
+        forecast = _forecast({78: 0.30})
+        markets = [_market(78, 0.20)]
+        signals = detect_edges(forecast, markets)
+        assert len(signals) == 1
+        assert signals[0].side == "buy"
+
+    def test_short_signals_have_sell_side(self):
+        forecast = _forecast({78: 0.10})
+        markets = [_market(78, 0.20)]
+        signals = detect_edges(forecast, markets)
+        assert len(signals) == 1
+        assert signals[0].side == "sell"

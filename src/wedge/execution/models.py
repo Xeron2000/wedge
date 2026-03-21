@@ -15,7 +15,7 @@ class OrderRequest(BaseModel):
     temp_value: int  # Temperature value (same unit as market)
     temp_unit: str  # "F" or "C"
     strategy: Literal["ladder"]
-    side: Literal["buy"] = "buy"
+    side: Literal["buy", "sell"] = "buy"
     limit_price: float
     size: float  # USD amount
     p_model: float = 0.0
