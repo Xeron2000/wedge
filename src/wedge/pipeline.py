@@ -377,14 +377,9 @@ async def check_exit_positions(
                 peak_p_model = p_model
                 await db.update_peak_p_model(city_name, date_str, temp_f, peak_p_model)
 
-            # Determine current market price (use entry_price as fallback)
-            market_price = entry_price
-
-            # Compute current EV: p_model * (1/market_price - 1) - (1 - p_model)
-            if market_price > 0:
-                ev = p_model * (1.0 / market_price - 1.0) - (1.0 - p_model)
-            else:
-                ev = -1.0
+            # Exit check uses p_model directly (model's fair value)
+            # Take-profit: exit if p_model dropped back to/below entry (edge gone)
+            profit_pct = (p_model - entry_price) / entry_price if entry_price > 0 else 0
 
             exit_reason: str | None = None
 
@@ -398,8 +393,8 @@ async def check_exit_positions(
                     trail_line = peak_p_model * (1.0 - settings.trailing_pct)
                     if p_model < trail_line:
                         exit_reason = "trailing_stop"
-            if exit_reason is None and p_model >= entry_price and ev <= settings.exit_min_ev:
-                # We're ahead but edge is gone — take profit
+            if exit_reason is None and p_model < entry_price:
+                # p_model dropped back to/below entry — edge is gone, take profit
                 exit_reason = "take_profit"
             if exit_reason is None:
                 # Log trailing stop status if activated

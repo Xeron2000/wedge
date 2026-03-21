@@ -149,7 +149,7 @@ def fractional_kelly(
 
     # Calculate EV for reporting
     fee_rate = 0.02  # Polymarket 2% fee on winnings
-    ev = (p_model * (1 - fee_rate) * win_odds) - lose_prob
+    ev = p_model * (1 - fee_rate) / market_price - 1.0
 
     if not math.isfinite(bet):  # pragma: no cover
         return KellyResult(

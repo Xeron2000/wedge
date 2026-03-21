@@ -100,10 +100,9 @@ class TestEVCalculation:
         ev_no_fee = calculate_ev(0.30, 0.20, fee_rate=0.0, slippage=0.0)
         ev_with_fee = calculate_ev(0.30, 0.20, fee_rate=0.02, slippage=0.0)
         assert ev_with_fee < ev_no_fee
-        # Fee is 2% of winnings portion only
-        # win_ev = 0.30 * 4.0 = 1.2, after fee = 1.2 * 0.98 = 1.176
-        # ev = 1.176 - 0.70 = 0.476
-        assert ev_with_fee == pytest.approx(0.476, rel=0.01)
+        # Correct formula: ev = p * (1-fee) / price - 1
+        # = 0.30 * 0.98 / 0.20 - 1 = 1.47 - 1 = 0.47
+        assert ev_with_fee == pytest.approx(0.47, rel=0.01)
 
     def test_calculate_ev_negative(self):
         """Test negative EV (bad bet)."""

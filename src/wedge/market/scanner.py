@@ -10,7 +10,7 @@ from wedge.market.polymarket import PolymarketClient
 
 log = get_logger("market.scanner")
 
-_TEMP_PATTERN = re.compile(r"(\d+)\s*°?\s*([CF])", re.IGNORECASE)
+_TEMP_PATTERN = re.compile(r"(\d+\.?\d*)\s*°?\s*([CF])", re.IGNORECASE)
 _DATE_PATTERN = re.compile(
     r"(january|february|march|april|may|june|july|august|september|"
     r"october|november|december)\s+(\d{1,2})",

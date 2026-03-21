@@ -94,8 +94,8 @@ class Settings(BaseSettings):
     mode: str = "dry_run"
     bankroll: float = 1000.0
     max_bet: float = 100.0
-    kelly_fraction: float = 0.15
-    max_bet_pct: float = 0.05
+    kelly_fraction: float = 0.10
+    max_bet_pct: float = 0.03
     db_path: str = Field(default_factory=lambda: str(get_data_dir() / "wedge.db"))
     log_dir: str = Field(default_factory=lambda: str(get_data_dir() / "logs"))
 
@@ -107,13 +107,13 @@ class Settings(BaseSettings):
     fee_rate: float = 0.02  # Polymarket 2% fee on winnings
 
     # Exit strategy (probability-based)
-    exit_loss_factor: float = 0.5
-    exit_min_ev: float = 0.0
-    exit_min_hours_to_settle: int = 12
+    exit_loss_factor: float = 0.75  # Exit when p_model drops to 75% of entry
+    exit_min_ev: float = 0.01  # Exit when edge drops below 1%
+    exit_min_hours_to_settle: int = 6  # Don't exit within 6h of settlement
     exit_poll_interval_seconds: int = 60  # Check market prices every 1min for exits
 
     # Trailing stop (let profits run, protect gains)
-    trailing_activation_pct: float = 0.50  # Trail activates after 50% gain from entry
+    trailing_activation_pct: float = 0.20  # Trail activates after 20% gain from entry
     trailing_pct: float = 0.20  # Exit if price drops 20% from peak (after activation)
 
     # Partial take-profit tiers (scale out of positions)

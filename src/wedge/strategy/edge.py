@@ -35,14 +35,14 @@ def calculate_ev(
     fee_rate: float = _DEFAULT_FEE_RATE,
     slippage: float = 0.0,
 ) -> float:
-    """Calculate expected value of a binary option bet."""
+    """Calculate expected value of a binary option bet.
+
+    Bet $1 at price market_price. Win 1/market_price total if event happens.
+    EV = p_model * (1 - fee_rate) / market_price - 1 - slippage
+    """
     if not (_EPS < market_price < 1 - _EPS):
         return 0.0
-
-    odds = (1.0 - market_price) / market_price
-    win_ev = p_model * (1 - fee_rate) * odds
-    loss_ev = 1.0 - p_model
-    return win_ev - loss_ev - slippage
+    return p_model * (1 - fee_rate) / market_price - 1.0 - slippage
 
 
 def calculate_ev_short(
@@ -70,6 +70,7 @@ def detect_edges(
     markets: list[MarketBucket],
     ladder_threshold: float = 0.05,
     fee_rate: float = _DEFAULT_FEE_RATE,
+    slippage_bet_size: float = 50.0,
 ) -> list[EdgeSignal]:
     """Find buckets where model probability differs from market pricing.
 
@@ -90,7 +91,7 @@ def detect_edges(
 
         p_model = forecast.buckets.get(lookup_temp, 0.0)
         volume_24h = getattr(bucket, "volume_24h", 5000.0)
-        slippage = estimate_slippage(volume_24h, bet_size=50.0)
+        slippage = estimate_slippage(volume_24h, bet_size=slippage_bet_size)
         edge = p_model - bucket.market_price
 
         from datetime import datetime
