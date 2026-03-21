@@ -93,15 +93,15 @@ class Settings(BaseSettings):
 
     mode: str = "dry_run"
     bankroll: float = 1000.0
-    max_bet: float = 100.0
-    kelly_fraction: float = 0.10
-    max_bet_pct: float = 0.03
+    max_bet: float = 200.0
+    kelly_fraction: float = 0.20
+    max_bet_pct: float = 0.10
     db_path: str = Field(default_factory=lambda: str(get_data_dir() / "wedge.db"))
     log_dir: str = Field(default_factory=lambda: str(get_data_dir() / "logs"))
 
     # Ladder strategy
-    ladder_edge: float = 0.08
-    ladder_alloc: float = 0.90
+    ladder_edge: float = 0.06
+    ladder_alloc: float = 0.95
 
     # Fees and execution
     fee_rate: float = 0.02  # Polymarket 2% fee on winnings
