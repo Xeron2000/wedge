@@ -28,7 +28,7 @@ def mock_client():
 
 @pytest.fixture
 def executor(db, mock_client):
-    return LiveExecutor(db=db, client=mock_client, initial_balance=1000.0, max_bet=100.0)
+    return LiveExecutor(db=db, client=mock_client, initial_balance=1000.0, max_bet=100.0, maker_timeout=2)
 
 
 def _order(
@@ -85,39 +85,51 @@ class TestPlaceOrder:
         assert r2.error == "duplicate"
 
     @pytest.mark.asyncio
-    async def test_polymarket_api_failure_returns_error(self, mock_client, executor):
-        # New executor tries maker first, then taker
-        # Both need to fail for the order to fail
+    async def test_limit_order_failure_skips_trade(self, mock_client, executor):
+        # If place_limit_order returns None, trade is skipped
         mock_client.place_limit_order.return_value = None
-        mock_client.get_order_status = AsyncMock(return_value=None)  # Timeout
         result = await executor.place_order(_order(temp_f=90))
         assert not result.success
-        assert result.error is not None
+        assert result.error == "limit_not_filled"
+        # Balance should be refunded
+        balance = await executor.get_balance()
+        assert balance == 1000.0
+
+    @pytest.mark.asyncio
+    async def test_limit_order_timeout_skips_trade(self, mock_client, executor):
+        # Limit order placed but never fills → timeout → skip
+        mock_client.place_limit_order.return_value = {"id": "order_timeout"}
+        mock_client.get_order_status = AsyncMock(return_value={"state": "open"})
+        result = await executor.place_order(_order(temp_f=91))
+        assert not result.success
+        assert result.error == "limit_not_filled"
+        mock_client.cancel_order.assert_called_once_with("order_timeout")
+        balance = await executor.get_balance()
+        assert balance == 1000.0
 
     @pytest.mark.asyncio
     async def test_success_with_id_in_result(self, mock_client, executor):
-        # New executor uses maker-taker strategy
-        # Mock successful maker order
+        # Limit order fills within timeout
         mock_client.place_limit_order.return_value = {"id": "order_xyz"}
         mock_client.get_order_status = AsyncMock(return_value={"state": "filled"})
 
         result = await executor.place_order(_order(temp_f=80))
         assert result.success
         assert result.order_id == "order_xyz"
-        # Maker price is limit_price - MAKER_PRICE_OFFSET
         assert result.filled_price is not None
         assert result.filled_size == 10.0
         balance = await executor.get_balance()
         assert balance == 990.0
 
     @pytest.mark.asyncio
-    async def test_success_without_id_uses_generated_uuid(self, mock_client, executor):
-        mock_client.place_limit_order.return_value = {"status": "open"}  # no "id" key
+    async def test_no_id_skips_trade(self, mock_client, executor):
+        # place_limit_order returns result without "id" → skip
+        mock_client.place_limit_order.return_value = {"status": "open"}
         result = await executor.place_order(_order(temp_f=82))
-        assert result.success
-        assert result.order_id is not None
-        assert result.order_id.startswith("live_")
-        assert len(result.order_id) == len("live_") + 12
+        assert not result.success
+        assert result.error == "limit_not_filled"
+        balance = await executor.get_balance()
+        assert balance == 1000.0
 
 
 class TestCancelOrder:

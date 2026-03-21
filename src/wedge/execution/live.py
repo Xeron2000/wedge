@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from datetime import UTC, datetime
 
 from wedge.db import Database
@@ -14,19 +13,17 @@ from wedge.market.polymarket import PolymarketClient
 log = get_logger("execution.live")
 
 # Order execution constants
-MAKER_TIMEOUT_SECONDS = 30  # Wait 30s for maker order to fill
-MAKER_PRICE_OFFSET = 0.01  # Place maker 1¢ below mid price
-TAKER_PRICE_OFFSET = 0.02  # Taker 2¢ above mid for faster fill
+MAKER_TIMEOUT_SECONDS = 30  # Wait 30s for limit order to fill
 
 
 class LiveExecutor:
-    """Live execution with maker-taker strategy.
+    """Live execution with limit-only strategy.
 
     Strategy:
-    1. Place limit order (maker) at favorable price
+    1. Place limit order at model's fair price
     2. Wait for timeout
-    3. If not filled, cancel and place taker order
-    4. Track order status and handle partial fills
+    3. If not filled, cancel — skip this trade entirely
+    4. No taker/market orders to avoid slippage in illiquid markets
     """
 
     def __init__(
@@ -50,7 +47,7 @@ class LiveExecutor:
         self._pending_orders: dict[str, OrderRequest] = {}
 
     async def place_order(self, request: OrderRequest) -> OrderResult:
-        """Place order using maker-taker strategy.
+        """Place limit order only. Skips trade if not filled within timeout.
 
         Thread-safe: uses asyncio.Lock to protect balance checks and updates.
         """
@@ -90,12 +87,12 @@ class LiveExecutor:
             # Deduct balance immediately to prevent double-spending
             self._balance -= request.size
 
-        # Try maker order first (outside lock to allow concurrent processing)
-        result = await self._try_maker_order(request)
+        # Place limit order and wait for fill
+        result = await self._try_limit_order(request)
 
         if result and result.success:
             log.info(
-                "live_maker_order_filled",
+                "live_limit_order_filled",
                 order_id=result.order_id,
                 city=request.city,
                 temp_value=request.temp_value,
@@ -104,25 +101,14 @@ class LiveExecutor:
             await self._persist_balance_snapshot()
             return result
 
-        # Maker failed, try taker
+        # Not filled — cancel, refund, skip this trade
         log.info(
-            "live_maker_timeout_falling_back_to_taker",
+            "live_limit_order_skipped",
             run_id=request.run_id,
+            city=request.city,
             temp_value=request.temp_value,
+            reason="limit order did not fill within timeout, skipping to avoid slippage",
         )
-        result = await self._try_taker_order(request)
-
-        if result and result.success:
-            log.info(
-                "live_taker_order_filled",
-                order_id=result.order_id,
-                city=request.city,
-                temp_value=request.temp_value,
-            )
-            await self._persist_balance_snapshot()
-            return result
-
-        # Both failed - refund balance
         async with self._balance_lock:
             self._balance += request.size
         await self._db.delete_trade(
@@ -133,14 +119,7 @@ class LiveExecutor:
             strategy=request.strategy,
         )
         await self._persist_balance_snapshot()
-
-        # Both failed
-        log.error(
-            "live_order_failed",
-            run_id=request.run_id,
-            error=result.error if result else "unknown",
-        )
-        return result or OrderResult(success=False, error="execution_failed")
+        return result or OrderResult(success=False, error="limit_not_filled")
 
     async def _persist_balance_snapshot(self) -> None:
         """Persist current balance so a crash mid-run doesn't lose accounting state."""
@@ -148,20 +127,15 @@ class LiveExecutor:
             balance = self._balance
         await self._db.insert_bankroll_snapshot(balance, 0.0, datetime.now(UTC).isoformat())
 
-    async def _try_maker_order(self, request: OrderRequest) -> OrderResult | None:
-        """Try to fill as maker (limit order below mid).
-
-        Maker orders get fee rebate, improving EV.
-        """
-        # Calculate maker price (slightly below limit)
-        maker_price = max(0.01, request.limit_price - MAKER_PRICE_OFFSET)
+    async def _try_limit_order(self, request: OrderRequest) -> OrderResult | None:
+        """Place limit order at model's fair price. Cancel if not filled within timeout."""
+        limit_price = request.limit_price
 
         try:
-            # Place limit order
             result = await self._client.place_limit_order(
                 token_id=request.token_id,
                 side=request.side,
-                price=maker_price,
+                price=limit_price,
                 size=request.size,
             )
 
@@ -179,53 +153,21 @@ class LiveExecutor:
             filled = await self._wait_for_fill(order_id, self._maker_timeout)
 
             if filled:
-                # Order filled as maker
                 return OrderResult(
                     success=True,
                     order_id=order_id,
-                    filled_price=maker_price,
+                    filled_price=limit_price,
                     filled_size=request.size,
                 )
 
-            # Timeout - cancel and return None to trigger taker
+            # Timeout - cancel and return None
             await self._client.cancel_order(order_id)
-            log.info("live_maker_order_cancelled", order_id=order_id)
+            log.info("live_limit_order_cancelled", order_id=order_id)
             return None
 
         except Exception as e:
-            log.error("live_maker_order_error", error=str(e))
+            log.error("live_limit_order_error", error=str(e))
             return None
-
-    async def _try_taker_order(self, request: OrderRequest) -> OrderResult:
-        """Execute as taker (market order for immediate fill).
-
-        Taker orders pay fee but guarantee fill.
-        """
-        # Calculate taker price (slightly above mid for faster fill)
-        taker_price = min(0.99, request.limit_price + TAKER_PRICE_OFFSET)
-
-        try:
-            result = await self._client.place_limit_order(
-                token_id=request.token_id,
-                side=request.side,
-                price=taker_price,
-                size=request.size,
-            )
-
-            if not result:
-                return OrderResult(success=False, error="taker_order_failed")
-
-            order_id = result.get("id", f"live_{uuid.uuid4().hex[:12]}")
-            return OrderResult(
-                success=True,
-                order_id=order_id,
-                filled_price=taker_price,
-                filled_size=request.size,
-            )
-
-        except Exception as e:
-            log.error("live_taker_order_error", error=str(e))
-            return OrderResult(success=False, error=str(e))
 
     async def _wait_for_fill(
         self,
