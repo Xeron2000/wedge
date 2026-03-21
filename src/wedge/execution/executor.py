@@ -1,14 +1,26 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from wedge.execution.models import OrderRequest, OrderResult
 from wedge.market.models import Position
+
+if TYPE_CHECKING:
+    from wedge.db import Database
 
 
 class Executor(Protocol):
     async def place_order(self, request: OrderRequest) -> OrderResult: ...
     async def cancel_order(self, order_id: str) -> bool: ...
+    async def close_position(
+        self,
+        city: str,
+        date_str: str,
+        temp_f: float,
+        exit_price: float,
+        exit_reason: str,
+        db: Database,
+    ) -> float: ...
     async def get_positions(self) -> list[Position]: ...
     async def get_balance(self) -> float: ...
 

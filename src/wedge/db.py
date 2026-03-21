@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS cycle_markers (
     updated_at TEXT
  );
 
+CREATE TABLE IF NOT EXISTS exit_tiers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    city TEXT NOT NULL,
+    date TEXT NOT NULL,
+    temp_f INTEGER NOT NULL,
+    tier_index INTEGER NOT NULL,  
+    exit_price REAL NOT NULL,
+    shares_sold REAL NOT NULL,
+    pnl REAL NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exit_tiers_pos ON exit_tiers(city, date, temp_f);
+
 CREATE INDEX IF NOT EXISTS idx_trades_run ON trades(run_id);
 CREATE INDEX IF NOT EXISTS idx_trades_city_date ON trades(city, date);
 CREATE INDEX IF NOT EXISTS idx_forecasts_city_date ON forecasts(city, date);
@@ -94,6 +107,8 @@ class Database:
             "ALTER TABLE trades ADD COLUMN exit_price REAL",
             "ALTER TABLE trades ADD COLUMN exit_reason TEXT",
             "ALTER TABLE trades ADD COLUMN settled_at TEXT",
+            "ALTER TABLE trades ADD COLUMN peak_p_model REAL",
+            "ALTER TABLE trades ADD COLUMN remaining_size REAL",
         ]:
             try:
                 await self._conn.execute(migration_sql)
@@ -103,6 +118,14 @@ class Database:
                     pass
                 else:
                     raise
+        # Initialize peak_p_model and remaining_size for existing rows
+        await self._conn.execute(
+            "UPDATE trades SET peak_p_model = p_model WHERE peak_p_model IS NULL"
+        )
+        await self._conn.execute(
+            "UPDATE trades SET remaining_size = size WHERE remaining_size IS NULL"
+        )
+        await self._conn.commit()
 
     async def close(self) -> None:
         if self._conn:
@@ -303,7 +326,7 @@ class Database:
             fee_rate: Fee rate on profits (default 2% for Polymarket)
         """
         cursor = await self.conn.execute(
-            "SELECT id, temp_f, entry_price, size FROM trades "
+            "SELECT id, temp_f, entry_price, size, remaining_size FROM trades "
             "WHERE city=? AND date=? AND settled=0",
             (city, date),
         )
@@ -311,8 +334,10 @@ class Database:
         count = 0
         for row in rows:
             outcome = 1.0 if row["temp_f"] == actual_temp else 0.0
-            # Binary option P&L: (outcome - entry_price) * size / entry_price
-            pnl = (outcome - row["entry_price"]) * row["size"] / row["entry_price"]
+            # Use remaining_size if set, else size for partial exits
+            remaining = row["remaining_size"] if row["remaining_size"] is not None else row["size"]
+            # Binary option P&L: (outcome - entry_price) * remaining / entry_price
+            pnl = (outcome - row["entry_price"]) * remaining / row["entry_price"]
 
             # Apply fee on profits only
             if pnl > 0:
@@ -542,16 +567,69 @@ class Database:
             exit_reason=exit_reason,
         )
 
+    async def update_peak_p_model(self, city: str, date_str: str, temp_f: float, peak_p_model: float) -> None:
+        """Update peak_p_model for trailing stop tracking."""
+        await self.conn.execute(
+            "UPDATE trades SET peak_p_model = ? WHERE city=? AND date=? AND temp_f=? AND settled=0",
+            (peak_p_model, city, date_str, temp_f),
+        )
+        await self.conn.commit()
+
+    async def record_tier_exit(
+        self,
+        *,
+        city: str,
+        date_str: str,
+        temp_f: float,
+        tier_index: int,
+        exit_price: float,
+        shares_sold: float,
+        pnl: float,
+        new_remaining_size: float,
+    ) -> None:
+        """Record a tier exit and update remaining_size."""
+        now = datetime.now(UTC).isoformat()
+        await self.conn.execute(
+            """INSERT INTO exit_tiers (city, date, temp_f, tier_index, exit_price, shares_sold, pnl, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (city, date_str, temp_f, tier_index, exit_price, shares_sold, pnl, now),
+        )
+        await self.conn.execute(
+            "UPDATE trades SET remaining_size = ? WHERE city=? AND date=? AND temp_f=? AND settled=0",
+            (new_remaining_size, city, date_str, temp_f),
+        )
+        await self.conn.commit()
+
+    async def get_tier_exits(self, city: str, date_str: str, temp_f: float) -> list[dict]:
+        """Get all tier exits for a position."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM exit_tiers WHERE city=? AND date=? AND temp_f=? ORDER BY tier_index",
+            (city, date_str, temp_f),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
     async def get_open_positions(self) -> list[dict]:
         """Get all unsettled positions."""
         cursor = await self.conn.execute(
             """SELECT city, date, temp_f AS temp_value, temp_unit,
-                      strategy, entry_price, size, p_model, edge, created_at
+                      strategy, entry_price, size, p_model, edge,
+                      peak_p_model, remaining_size, created_at
                FROM trades
                WHERE settled = 0
                ORDER BY date, city, temp_f"""
         )
-        return [dict(row) for row in await cursor.fetchall()]
+        rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("peak_p_model") is None:
+                d["peak_p_model"] = d["p_model"]
+            if d.get("remaining_size") is None:
+                d["remaining_size"] = d["size"]
+            # Skip fully exited positions (remaining_size <= 0)
+            if d["remaining_size"] <= 0:
+                continue
+            result.append(d)
+        return result
 
     async def has_open_position(self, city: str, date: str, temp_f: int) -> bool:
         """Check if there's already an open position for this market."""

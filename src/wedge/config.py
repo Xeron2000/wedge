@@ -110,10 +110,20 @@ class Settings(BaseSettings):
     exit_loss_factor: float = 0.5
     exit_min_ev: float = 0.0
     exit_min_hours_to_settle: int = 12
+    exit_poll_interval_seconds: int = 60  # Check market prices every 1min for exits
+
+    # Trailing stop (let profits run, protect gains)
+    trailing_activation_pct: float = 0.50  # Trail activates after 50% gain from entry
+    trailing_pct: float = 0.20  # Exit if price drops 20% from peak (after activation)
+
+    # Partial take-profit tiers (scale out of positions)
+    # Example: exit 33% at +50%, another 33% at +100%, rest runs to trailing/settlement
+    exit_tier_pcts: list[float] = Field(default_factory=lambda: [0.50, 1.0])
+    exit_tier_portions: list[float] = Field(default_factory=lambda: [0.33, 0.33])
+
     brier_threshold: float = 0.25
     scheduler_brier_days: int = 30
     spread_baseline_f: float = 3.0
-
     # NOAA latency-path rollout (Phase 1+2)
     readiness_mode: str = "off"  # off | shadow | active
     readiness_probe_start_offset_minutes: int = 180  # cycle + 3h — start polling as early as possible

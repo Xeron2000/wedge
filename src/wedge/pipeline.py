@@ -15,7 +15,7 @@ from wedge.log import get_logger
 from wedge.market.models import MarketBucket
 from wedge.market.polymarket import PolymarketClient, PublicPolymarketClient
 from wedge.market.scanner import scan_weather_markets
-from wedge.strategy.edge import detect_edges
+from wedge.strategy.edge import _EPS, detect_edges
 from wedge.strategy.ladder import evaluate_ladder
 from wedge.strategy.portfolio import allocate
 from wedge.weather.client import fetch_actual_temperature, fetch_ensemble
@@ -290,6 +290,7 @@ async def check_exit_positions(
 
     Exit rules (probability-based):
     - Stop-loss: p_model < entry_price * exit_loss_factor  (probability collapsed)
+    - Trailing stop: profit > activation_pct AND p_model < peak * (1 - trailing_pct)
     - Take-profit: p_model >= entry_price but EV <= exit_min_ev  (edge is gone)
 
     Returns number of positions closed.
@@ -312,6 +313,7 @@ async def check_exit_positions(
             date_str = pos["date"]
             temp_f = pos["temp_f"]
             entry_price = pos["entry_price"]
+            size = pos["size"]
 
             # Skip if settlement is imminent (avoid noise near expiry)
             try:
@@ -367,6 +369,14 @@ async def check_exit_positions(
                     continue
                 p_model = forecast.buckets[nearest]
 
+            # Track peak p_model for trailing stop
+            peak_p_model = pos.get("peak_p_model", p_model)
+            if peak_p_model is None:
+                peak_p_model = p_model
+            if p_model > peak_p_model:
+                peak_p_model = p_model
+                await db.update_peak_p_model(city_name, date_str, temp_f, peak_p_model)
+
             # Determine current market price (use entry_price as fallback)
             market_price = entry_price
 
@@ -381,19 +391,96 @@ async def check_exit_positions(
             if p_model < entry_price * settings.exit_loss_factor:
                 # Probability collapsed — stop loss
                 exit_reason = "stop_loss"
-            elif p_model >= entry_price and ev <= settings.exit_min_ev:
+            elif settings.trailing_activation_pct > 0 and entry_price > 0:
+                # Trailing stop: let profits run, then protect gains
+                profit_pct = (p_model - entry_price) / entry_price
+                if profit_pct >= settings.trailing_activation_pct:
+                    trail_line = peak_p_model * (1.0 - settings.trailing_pct)
+                    if p_model < trail_line:
+                        exit_reason = "trailing_stop"
+            if exit_reason is None and p_model >= entry_price and ev <= settings.exit_min_ev:
                 # We're ahead but edge is gone — take profit
                 exit_reason = "take_profit"
-
             if exit_reason is None:
-                log.info(
-                    "exit_check_hold",
-                    city=city_name,
-                    temp_f=temp_f,
-                    entry_price=entry_price,
-                    p_model=round(p_model, 4),
-                    ev=round(ev, 4),
-                )
+                # Log trailing stop status if activated
+                if settings.trailing_activation_pct > 0 and entry_price > 0:
+                    profit_pct = (p_model - entry_price) / entry_price
+                    if profit_pct >= settings.trailing_activation_pct:
+                        trail_line = peak_p_model * (1.0 - settings.trailing_pct)
+                        log.info(
+                            "exit_check_trailing_active",
+                            city=city_name,
+                            temp_f=temp_f,
+                            profit_pct=round(profit_pct, 3),
+                            peak_p_model=round(peak_p_model, 4),
+                            trail_line=round(trail_line, 4),
+                            p_model=round(p_model, 4),
+                        )
+                    else:
+                        log.info(
+                            "exit_check_hold",
+                            city=city_name,
+                            temp_f=temp_f,
+                            entry_price=entry_price,
+                            p_model=round(p_model, 4),
+                            ev=round(ev, 4),
+                            profit_pct=round(profit_pct, 3),
+                        )
+                else:
+                    log.info(
+                        "exit_check_hold",
+                        city=city_name,
+                        temp_f=temp_f,
+                        entry_price=entry_price,
+                        p_model=round(p_model, 4),
+                        ev=round(ev, 4),
+                    )
+                # Check partial tier exits (scale out of profitable positions)
+                if settings.exit_tier_pcts and settings.exit_tier_portions:
+                    remaining = pos.get("remaining_size", size) or size
+                    if remaining > 0 and entry_price > 0:
+                        existing_exits = await db.get_tier_exits(city_name, date_str, temp_f)
+                        completed_tiers = {e["tier_index"] for e in existing_exits}
+                        for tier_idx, (tier_pct, portion) in enumerate(
+                            zip(settings.exit_tier_pcts, settings.exit_tier_portions)
+                        ):
+                            if tier_idx in completed_tiers:
+                                continue
+                            profit_pct = (p_model - entry_price) / entry_price
+                            if profit_pct >= tier_pct:
+                                # Partial exit: sell `portion` of remaining
+                                shares_total = remaining / entry_price
+                                shares_sold = shares_total * portion
+                                exit_value = shares_sold * p_model
+                                cost_sold = remaining * portion
+                                tier_pnl = exit_value - cost_sold
+                                new_remaining = remaining * (1.0 - portion)
+                                # Credit balance
+                                executor._balance += exit_value
+                                await db.record_tier_exit(
+                                    city=city_name,
+                                    date_str=date_str,
+                                    temp_f=temp_f,
+                                    tier_index=tier_idx,
+                                    exit_price=round(p_model, 4),
+                                    shares_sold=round(shares_sold, 4),
+                                    pnl=round(tier_pnl, 4),
+                                    new_remaining_size=round(new_remaining, 4),
+                                )
+                                log.info(
+                                    "tier_exit",
+                                    city=city_name,
+                                    temp_f=temp_f,
+                                    tier_index=tier_idx,
+                                    tier_pct=tier_pct,
+                                    profit_pct=round(profit_pct, 3),
+                                    portion=portion,
+                                    shares_sold=round(shares_sold, 2),
+                                    exit_price=round(p_model, 4),
+                                    pnl=round(tier_pnl, 4),
+                                    remaining=round(new_remaining, 4),
+                                )
+                                remaining = new_remaining
                 continue
 
             # Exit at current p_model as proxy for fair exit price
@@ -579,3 +666,146 @@ async def run_single_scan(settings: Settings, city_name: str) -> None:
         for temp_f in sorted(forecast.buckets):
             prob = forecast.buckets[temp_f]
             log.info("bucket", temp_f=temp_f, probability=f"{prob:.1%}")
+
+
+async def run_market_exit_check(
+    settings: Settings,
+    db: Database,
+    executor: DryRunExecutor | LiveExecutor,
+    poly_client: PolymarketClient | PublicPolymarketClient | None = None,
+) -> int:
+    """Check exits using real market prices (polled every N minutes).
+
+    This runs independently from the weather pipeline. It fetches current
+    Polymarket prices for open positions and checks:
+    - Stop-loss: market_price < entry_price * exit_loss_factor
+    - Trailing stop: profit > activation, then market_price drops from peak
+    - Tier exits: profit % hits tier thresholds
+
+    Does NOT check take-profit (EV-based) since that needs p_model.
+    Returns number of positions closed.
+    """
+    if poly_client is None:
+        return 0
+
+    positions = await db.get_open_positions()
+    if not positions:
+        return 0
+
+    closed = 0
+    async with httpx.AsyncClient() as http_client:
+        for pos in positions:
+            city_name = pos["city"]
+            date_str = pos["date"]
+            temp_f = pos["temp_f"]
+            entry_price = pos["entry_price"]
+            size = pos["size"]
+
+            # Skip if settlement is imminent
+            try:
+                settle_date = date.fromisoformat(date_str)
+                city_cfg = next((c for c in settings.cities if c.name == city_name), None)
+                if city_cfg:
+                    city_tz = ZoneInfo(city_cfg.timezone)
+                    now_local = datetime.now(city_tz)
+                    settle_dt = datetime(
+                        settle_date.year, settle_date.month, settle_date.day,
+                        23, 59, tzinfo=city_tz,
+                    )
+                    hours_to_settle = (settle_dt - now_local).total_seconds() / 3600
+                    if hours_to_settle <= settings.exit_min_hours_to_settle:
+                        continue
+            except Exception:
+                pass
+
+            # Fetch current market price for this bucket
+            try:
+                city_cfg = next((c for c in settings.cities if c.name == city_name), None)
+                if not city_cfg:
+                    continue
+                target_date = date.fromisoformat(date_str)
+                markets = await scan_weather_markets(poly_client, city_name, target_date)
+                # Find matching market bucket
+                matching = [m for m in markets if m.temp_value == temp_f]
+                if not matching:
+                    continue
+                market_price = matching[0].market_price
+            except Exception as e:
+                log.warning("exit_check_market_fetch_failed", city=city_name, error=str(e))
+                continue
+
+            if not (_EPS < market_price < 1 - _EPS):
+                continue
+
+            # Track peak market price for trailing stop
+            peak_p_model = pos.get("peak_p_model", market_price)
+            if peak_p_model is None:
+                peak_p_model = market_price
+            if market_price > peak_p_model:
+                peak_p_model = market_price
+                await db.update_peak_p_model(city_name, date_str, temp_f, peak_p_model)
+
+            remaining = pos.get("remaining_size", size) or size
+            exit_reason: str | None = None
+
+            # 1. Stop-loss: market price collapsed
+            if market_price < entry_price * settings.exit_loss_factor:
+                exit_reason = "stop_loss"
+            # 2. Trailing stop: market price dropped from peak
+            elif settings.trailing_activation_pct > 0 and entry_price > 0:
+                profit_pct = (market_price - entry_price) / entry_price
+                if profit_pct >= settings.trailing_activation_pct:
+                    trail_line = peak_p_model * (1.0 - settings.trailing_pct)
+                    if market_price < trail_line:
+                        exit_reason = "trailing_stop"
+            # 3. Tier exits (partial)
+            if exit_reason is None and settings.exit_tier_pcts and settings.exit_tier_portions:
+                if remaining > 0 and entry_price > 0:
+                    existing_exits = await db.get_tier_exits(city_name, date_str, temp_f)
+                    completed_tiers = {e["tier_index"] for e in existing_exits}
+                    for tier_idx, (tier_pct, portion) in enumerate(
+                        zip(settings.exit_tier_pcts, settings.exit_tier_portions)
+                    ):
+                        if tier_idx in completed_tiers:
+                            continue
+                        profit_pct = (market_price - entry_price) / entry_price
+                        if profit_pct >= tier_pct:
+                            shares_total = remaining / entry_price
+                            shares_sold = shares_total * portion
+                            exit_value = shares_sold * market_price
+                            cost_sold = remaining * portion
+                            tier_pnl = exit_value - cost_sold
+                            new_remaining = remaining * (1.0 - portion)
+                            executor._balance += exit_value
+                            await db.record_tier_exit(
+                                city=city_name, date_str=date_str, temp_f=temp_f,
+                                tier_index=tier_idx, exit_price=round(market_price, 4),
+                                shares_sold=round(shares_sold, 4), pnl=round(tier_pnl, 4),
+                                new_remaining_size=round(new_remaining, 4),
+                            )
+                            log.info(
+                                "market_tier_exit", city=city_name, temp_f=temp_f,
+                                tier_index=tier_idx, market_price=round(market_price, 4),
+                                profit_pct=round(profit_pct, 3), pnl=round(tier_pnl, 4),
+                            )
+                            remaining = new_remaining
+
+            if exit_reason is None:
+                continue
+
+            # Full exit at market price
+            exit_price = round(market_price, 4)
+            pnl = await executor.close_position(
+                city=city_name, date_str=date_str, temp_f=temp_f,
+                exit_price=exit_price, exit_reason=exit_reason, db=db,
+            )
+            closed += 1
+            log.info(
+                "market_position_exited", city=city_name, temp_f=temp_f,
+                exit_reason=exit_reason, market_price=round(market_price, 4),
+                entry_price=entry_price, pnl=round(pnl, 4),
+            )
+
+    if closed:
+        log.info("market_exit_check_complete", closed=closed)
+    return closed

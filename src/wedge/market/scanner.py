@@ -73,8 +73,8 @@ def _detect_contract_type(question: str) -> str:
 
 def _extract_volume(market: dict) -> float:
     """Extract 24h volume from market data."""
-    # Try various field names for volume
-    for key in ["volume24h", "volume_24h", "volume", "notional24h"]:
+    # Try various field names for volume (Gamma API uses volume24hr, not volume24h)
+    for key in ["volume24hr", "volume24hrClob", "volume24h", "volume_24h", "volume", "notional24h"]:
         val = market.get(key)
         if val is not None:
             try:

@@ -7,11 +7,12 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from wedge.config import Settings
 from wedge.db import Database
 from wedge.log import get_logger
-from wedge.pipeline import run_pipeline, run_settlement
+from wedge.pipeline import run_market_exit_check, run_pipeline, run_settlement
 from wedge.weather.client import ReadinessProbeResult, probe_cycle_readiness
 
 _UTC = ZoneInfo("UTC")
@@ -137,6 +138,42 @@ async def run_scheduler(settings: Settings) -> None:
             id=f"pipeline_{offset}",
         )
 
+    # Market price exit check (every N seconds, independent of weather pipeline)
+    async def _run_market_exit_check() -> None:
+        try:
+            from wedge.market.polymarket import PolymarketClient, PublicPolymarketClient
+            from wedge.execution.dry_run import DryRunExecutor
+            from wedge.execution.live import LiveExecutor
+
+            if settings.mode == "live":
+                if settings.polymarket_private_key and settings.polymarket_api_key:
+                    poly_client = PolymarketClient(
+                        settings.polymarket_private_key,
+                        settings.polymarket_api_key,
+                        settings.polymarket_api_secret,
+                    )
+                    await poly_client.connect()
+                    balance = await db.get_last_balance(default=settings.bankroll)
+                    executor = LiveExecutor(db, poly_client, balance, settings.max_bet)
+                    await run_market_exit_check(settings, db, executor, poly_client)
+                else:
+                    log.warning("exit_check_no_credentials")
+            else:
+                poly_client = PublicPolymarketClient()
+                balance = await db.get_last_balance(default=settings.bankroll)
+                executor = DryRunExecutor(db, balance, settings.max_bet)
+                await run_market_exit_check(settings, db, executor, poly_client)
+        except Exception as e:
+            log.error("market_exit_check_error", error=str(e))
+
+    if settings.exit_poll_interval_seconds > 0:
+        scheduler.add_job(
+            _run_market_exit_check,
+            trigger=IntervalTrigger(seconds=settings.exit_poll_interval_seconds),
+            coalesce=True,
+            misfire_grace_time=60,
+            id="market_exit_check",
+        )
     scheduler.start()
     log.info(
         "scheduler_started",
